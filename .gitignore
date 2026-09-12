@@ -1,0 +1,86 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+*.secrets
+Secrets.plist
+
+# Runtime data, databases, backups, and logs
+data/
+backend/data/
+.animepilot/
+.kisetsu/
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+logs/
+backup/
+backups/
+private-secret-migration-backups/
+
+# Build and release output
+.build/
+AppleClient/.build/
+DerivedData/
+dist/
+release/
+*.app
+*.ipa
+*.dSYM
+*.xcarchive
+*.xcresult
+
+# Apple and Xcode user state
+.DS_Store
+._*
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.mobileprovision
+*.p12
+*.pfx
+*.cer
+*.key
+*.pem
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Local development and historical evidence
+.codex/
+.codex-*/
+artifacts/
+AppleClient/artifacts/
+AppleClient/Tests/
+backend/tests/
+backend/tests/fixtures/search-real-debug/
+.gitleaks.toml
+SECURITY.md
+AppleClient/README-iOS.md
+docs/*.md
+script/audit_*.py
+script/debug_*.py
+script/inspect_*.py
+script/verify_*.py
+
+# Editor and temporary files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

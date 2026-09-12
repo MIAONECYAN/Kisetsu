@@ -1,0 +1,66 @@
+name: KisetsuMobile
+options:
+  bundleIdPrefix: com.kisetsu
+  deploymentTarget:
+    iOS: "26.0"
+  xcodeVersion: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    SWIFT_STRICT_CONCURRENCY: complete
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 1.0
+    DEVELOPMENT_TEAM: ""
+targets:
+  KisetsuMobile:
+    type: application
+    platform: iOS
+    info:
+      path: Sources/KisetsuMobile/Info.plist
+      properties:
+        CFBundleDisplayName: Kisetsu
+        LSApplicationCategoryType: public.app-category.entertainment
+        NSLocalNetworkUsageDescription: Kisetsu 需要连接你在局域网中配置的后端服务。
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIApplicationSupportsIndirectInputEvents: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    sources:
+      - path: Sources/Kisetsu/Models
+      - path: Sources/Kisetsu/Services
+      - path: Sources/Kisetsu/Stores/AppStore.swift
+      - path: Sources/KisetsuMobile
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kisetsu.mobile
+        PRODUCT_NAME: Kisetsu
+        PRODUCT_MODULE_NAME: KisetsuMobile
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: NO
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+        CODE_SIGNING_ALLOWED: NO
+    scheme:
+      testTargets:
+        - KisetsuMobileTests
+  KisetsuMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/KisetsuMobileTests
+    dependencies:
+      - target: KisetsuMobile
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kisetsu.mobile.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Kisetsu.app/Kisetsu"
+        BUNDLE_LOADER: "$(TEST_HOST)"

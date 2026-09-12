@@ -1,0 +1,19 @@
+[server]
+host = "127.0.0.1"
+port = 8000
+
+[database]
+path = "../data/kisetsu.sqlite3"
+
+[qbittorrent]
+base_url = "http://127.0.0.1:8080"
+# Fill these only in your local configuration.
+username = ""
+password = ""
+default_save_path = ""
+default_category = "anime"
+default_tags = ["kisetsu"]
+
+[metadata]
+tmdb_api_key = ""
+bangumi_user_agent = "Kisetsu/0.1 (local MVP)"
