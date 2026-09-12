@@ -38,13 +38,17 @@ Kisetsu 将资源搜索、订阅跟踪、下载任务、媒体识别、文件整
 
 ## 界面
 
+<p align="center"><strong>概览</strong></p>
 <p align="center">
-  <img src="docs/screenshots/macos-overview.png" width="48%" alt="Kisetsu macOS 概览">
-  <img src="docs/screenshots/macos-subscriptions.png" width="48%" alt="Kisetsu macOS 订阅">
+  <img src="docs/screenshots/macos-overview.png" width="68%" alt="Kisetsu macOS 概览">
+  &nbsp;
+  <img src="docs/screenshots/iphone-overview.png" width="22%" alt="Kisetsu iPhone 概览">
 </p>
+<p align="center"><strong>订阅</strong></p>
 <p align="center">
-  <img src="docs/screenshots/iphone-overview.png" width="23%" alt="Kisetsu iPhone 概览">
-  <img src="docs/screenshots/iphone-subscriptions.png" width="23%" alt="Kisetsu iPhone 订阅">
+  <img src="docs/screenshots/macos-subscriptions.png" width="68%" alt="Kisetsu macOS 订阅">
+  &nbsp;
+  <img src="docs/screenshots/iphone-subscriptions.png" width="22%" alt="Kisetsu iPhone 订阅">
 </p>
 
 ## 能力
