@@ -9,7 +9,13 @@
 </p>
 
 <p align="center">
-  macOS&nbsp;&nbsp;·&nbsp;&nbsp;iPhone&nbsp;&nbsp;·&nbsp;&nbsp;FastAPI&nbsp;&nbsp;·&nbsp;&nbsp;Plex
+  <img src="docs/icons/desktop.svg" width="16" height="16" alt=""> macOS
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <img src="docs/icons/phone.svg" width="16" height="16" alt=""> iPhone
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <img src="docs/icons/server.svg" width="16" height="16" alt=""> FastAPI
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <img src="docs/icons/play.svg" width="16" height="16" alt=""> Plex
 </p>
 
 <p align="center">
