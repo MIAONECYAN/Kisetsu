@@ -78,6 +78,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -e ./backend
 cp .env.example .env
+set -a
+source .env
+set +a
 ./script/start_backend.sh
 ```
 
@@ -120,6 +123,7 @@ cp .env.example .env
 
 [GitHub Releases](https://github.com/MIAONECYAN/Kisetsu/releases/latest) 提供：
 
+- Python 3.11+ 后端源码包：解压后按包内 `README.md` 创建虚拟环境并启动。
 - macOS Apple Silicon 客户端：ad-hoc 签名，未经 Apple 公证。
 - iPhone `arm64` 客户端：未签名 IPA，需要使用者自行签名。
 - `SHA256SUMS.txt`：发布附件的 SHA-256 校验值。
