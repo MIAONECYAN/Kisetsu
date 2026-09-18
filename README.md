@@ -23,14 +23,13 @@
   &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#快速开始">快速开始</a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
-  <a href="NOTICE.md">使用限制</a>
+  <a href="NOTICE.md">使用说明</a>
 </p>
 
 > [!IMPORTANT]
-> Kisetsu 以 **source-available** 方式公开源码，采用
-> [PolyForm Noncommercial License 1.0.0](LICENSE)，禁止商业使用，且不属于
-> OSI 认可的开源软件。本软件不允许在中国大陆使用、部署、分发、镜像、宣传或
-> 推广；使用前请完整阅读 [NOTICE.md](NOTICE.md)。
+> Kisetsu 是采用 [MIT License](LICENSE) 发布的开源软件。Kisetsu 不提供媒体内容、
+> 站点账号或第三方服务；使用者应自行确保数据来源和使用行为合法，并在使用前阅读
+> [NOTICE.md](NOTICE.md)。
 
 Kisetsu 将资源搜索、订阅跟踪、下载任务、媒体识别、文件整理与 Plex 播放列表集中
 到一套自托管工作流中。后端由使用者自行运行，macOS 与 iPhone 客户端连接同一服务，
@@ -144,12 +143,12 @@ script/        启动、构建与打包脚本
 
 ## 许可与免责声明
 
-源码采用 [PolyForm Noncommercial License 1.0.0](LICENSE)，仅允许许可证定义的
-非商业用途。本项目不是 OSI 认可的开源软件。
+源码采用 [MIT License](LICENSE)，允许在保留版权与许可声明的前提下使用、复制、
+修改、合并、发布、分发、再许可及销售软件副本。
 
 软件按现状提供。维护者不对数据丢失、下载或整理结果、版权争议、账号封禁、服务中断
 及其他使用后果承担责任。使用者应自行确认数据来源及使用行为符合所在地法律与第三方
 服务条款。
 
-地区限制与完整免责声明见 [NOTICE.md](NOTICE.md)；第三方项目与商标说明见
+完整使用说明与免责声明见 [NOTICE.md](NOTICE.md)；第三方项目与商标说明见
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
