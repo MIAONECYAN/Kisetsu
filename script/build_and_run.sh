@@ -4,15 +4,32 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="Kisetsu"
 BUNDLE_ID="com.kisetsu.app"
+APP_VERSION="0.1.2"
+BUILD_NUMBER="3"
 MIN_SYSTEM_VERSION="15.0"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PACKAGE_DIR="$ROOT_DIR/AppleClient"
 DIST_DIR="$ROOT_DIR/dist"
+BUILD_CONFIGURATION="release"
+BUILD_PATH_ARGS=(--build-path "/private/tmp/Kisetsu-ReleaseBuild-$APP_VERSION")
+SOURCE_PATH_ARGS=(
+  -Xswiftc -file-prefix-map -Xswiftc "$ROOT_DIR=Kisetsu"
+  -Xswiftc -file-prefix-map -Xswiftc "$HOME=/Users/example"
+  -Xcc "-fdebug-prefix-map=$ROOT_DIR=Kisetsu"
+  -Xcc "-fdebug-prefix-map=$HOME=/Users/example"
+)
 if [[ "$MODE" == "--fixture" ]]; then
   DIST_DIR="/private/tmp/Kisetsu-DesktopFixture"
   BUNDLE_ID="com.kisetsu.desktop.fixture"
+  BUILD_CONFIGURATION="debug"
+  BUILD_PATH_ARGS=()
+  SOURCE_PATH_ARGS=()
   export KISETSU_DESKTOP_USE_FIXTURES=1
+else
+  unset KISETSU_DESKTOP_USE_FIXTURES ANIMEPILOT_DESKTOP_USE_FIXTURES
+  unset KISETSU_DESKTOP_ORGANIZE_FIXTURE_URL ANIMEPILOT_DESKTOP_ORGANIZE_FIXTURE_URL
+  unset KISETSU_DESKTOP_INITIAL_SECTION ANIMEPILOT_DESKTOP_INITIAL_SECTION
 fi
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
@@ -26,8 +43,13 @@ if [[ "$MODE" != "--fixture" ]]; then
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 fi
 
-swift build --package-path "$PACKAGE_DIR" --product "$APP_NAME"
-BUILD_BINARY="$(swift build --package-path "$PACKAGE_DIR" --show-bin-path)/$APP_NAME"
+MACOS_SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+swift build --package-path "$PACKAGE_DIR" "${BUILD_PATH_ARGS[@]}" \
+  --configuration "$BUILD_CONFIGURATION" --product "$APP_NAME" "${SOURCE_PATH_ARGS[@]}" \
+  -Xlinker -platform_version -Xlinker macos \
+  -Xlinker "$MIN_SYSTEM_VERSION" -Xlinker "$MACOS_SDK_VERSION"
+BUILD_BINARY="$(swift build --package-path "$PACKAGE_DIR" "${BUILD_PATH_ARGS[@]}" \
+  --configuration "$BUILD_CONFIGURATION" --show-bin-path)/$APP_NAME"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
@@ -53,9 +75,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>$APP_VERSION</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>$BUILD_NUMBER</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>
@@ -84,14 +106,14 @@ open_app() {
   if [[ -n "${KISETSU_COLOR_SCHEME:-}" ]]; then
     open_args+=(--env "KISETSU_COLOR_SCHEME=$KISETSU_COLOR_SCHEME")
   fi
-  if [[ -n "${KISETSU_DESKTOP_USE_FIXTURES:-}" ]]; then
-    open_args+=(--env "KISETSU_DESKTOP_USE_FIXTURES=$KISETSU_DESKTOP_USE_FIXTURES")
-  fi
-  if [[ -n "${KISETSU_DESKTOP_INITIAL_SECTION:-}" ]]; then
-    open_args+=(--env "KISETSU_DESKTOP_INITIAL_SECTION=$KISETSU_DESKTOP_INITIAL_SECTION")
-  fi
-  if [[ "$MODE" == "--fixture" && -n "${KISETSU_DESKTOP_ORGANIZE_FIXTURE_URL:-}" ]]; then
-    open_args+=(--env "KISETSU_DESKTOP_ORGANIZE_FIXTURE_URL=$KISETSU_DESKTOP_ORGANIZE_FIXTURE_URL")
+  if [[ "$MODE" == "--fixture" ]]; then
+    open_args+=(--env "KISETSU_DESKTOP_USE_FIXTURES=1")
+    if [[ -n "${KISETSU_DESKTOP_INITIAL_SECTION:-}" ]]; then
+      open_args+=(--env "KISETSU_DESKTOP_INITIAL_SECTION=$KISETSU_DESKTOP_INITIAL_SECTION")
+    fi
+    if [[ -n "${KISETSU_DESKTOP_ORGANIZE_FIXTURE_URL:-}" ]]; then
+      open_args+=(--env "KISETSU_DESKTOP_ORGANIZE_FIXTURE_URL=$KISETSU_DESKTOP_ORGANIZE_FIXTURE_URL")
+    fi
   fi
   /usr/bin/open "${open_args[@]}"
 }

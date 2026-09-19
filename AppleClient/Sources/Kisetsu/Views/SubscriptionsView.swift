@@ -26,8 +26,8 @@ struct SubscriptionsView: View {
   @State private var subscriptionSearchFocusID: Int?
 
   private var filteredSubscriptions: [Subscription] {
-    let scoped = store.subscriptionListFilter.apply(to: store.subscriptions)
-    return SubscriptionSearch.filter(scoped, query: subscriptionSearch.query)
+    let scopedSubscriptions = store.subscriptionListFilter.apply(to: store.subscriptions)
+    return SubscriptionSearch.filter(scopedSubscriptions, query: subscriptionSearch.query)
   }
 
   var body: some View {
@@ -251,13 +251,7 @@ private struct SubscriptionToolbar: View {
       Spacer(minLength: 12)
       searchButton
     }
-    .padding(.horizontal, KisetsuStyle.pagePadding)
-    .padding(.vertical, KisetsuStyle.toolbarVerticalPadding)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color(nsColor: .textBackgroundColor))
-    .overlay(alignment: .bottom) {
-      Divider()
-    }
+    .appToolbarSurface()
   }
 
   @ViewBuilder
@@ -292,13 +286,16 @@ private struct SubscriptionToolbar: View {
       }
       .disabled(store.lastRefreshResponse == nil && store.lastRefreshAllResponse == nil)
 
+      Divider()
+        .frame(height: 20)
+
       Button {
         showingTools.toggle()
       } label: {
         Image(
-          systemName: store.subscriptionListFilter == .all
-            ? "line.3.horizontal.decrease.circle"
-            : "line.3.horizontal.decrease.circle.fill"
+          systemName: store.subscriptionListFilter == .completed
+            ? "line.3.horizontal.decrease.circle.fill"
+            : "line.3.horizontal.decrease.circle"
         )
       }
       .help("订阅工具")
@@ -320,7 +317,6 @@ private struct SubscriptionToolbar: View {
       toggle: toggleSearch
     )
   }
-
 }
 
 private struct SubscriptionToolsPopover: View {
@@ -330,7 +326,7 @@ private struct SubscriptionToolsPopover: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      Text("筛选")
+      Text("显示")
         .font(.caption)
         .foregroundStyle(.secondary)
 
@@ -338,11 +334,10 @@ private struct SubscriptionToolsPopover: View {
         store.subscriptionListFilter = store.subscriptionListFilter == .completed ? .all : .completed
       } label: {
         HStack {
-          Text("订阅完成")
+          Label("订阅完成", systemImage: "checkmark.circle")
           Spacer()
           if store.subscriptionListFilter == .completed {
             Image(systemName: "checkmark")
-              .foregroundStyle(.tint)
           }
         }
         .contentShape(Rectangle())
@@ -398,7 +393,6 @@ private struct SubscriptionToolsPopover: View {
             .controlSize(.small)
           Text("正在读取自动刷新状态")
             .foregroundStyle(.secondary)
-          Spacer()
         }
       } else {
         HStack(spacing: 8) {
@@ -436,10 +430,7 @@ private struct SubscriptionToolsPopover: View {
 
   private var intervalText: String {
     let seconds = store.schedulerIntervalSeconds
-    if seconds.isMultiple(of: 60) {
-      return "\(seconds / 60) 分钟"
-    }
-    return "\(seconds) 秒"
+    return seconds.isMultiple(of: 60) ? "\(seconds / 60) 分钟" : "\(seconds) 秒"
   }
 
   private var scheduleText: String? {
@@ -1499,14 +1490,9 @@ private struct SubscriptionRow: View {
           } label: {
             Label("更多", systemImage: "ellipsis.circle")
           }
-          .menuStyle(.borderlessButton)
-          .frame(width: 72, alignment: .trailing)
-          .fixedSize()
           .disabled(store.isLoading)
         }
-        .fixedSize()
       }
-      .fixedSize(horizontal: true, vertical: false)
     }
     .padding(14)
     .animeCard()

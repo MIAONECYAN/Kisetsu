@@ -516,7 +516,10 @@ final class AppStore: ObservableObject {
     backendURL = normalizedBackendURL
     backendURLDraft = normalizedBackendURL
     backendUserDefaults.set(normalizedBackendURL, forKey: "backendURL")
-    libraryRoot = UserDefaults.standard.string(forKey: "libraryRoot") ?? "\(NSHomeDirectory())/Movies/Anime Library"
+    libraryRoot = UserDefaults.standard.string(forKey: "libraryRoot")
+      ?? FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Movies/Anime Library", isDirectory: true)
+        .path
     if backendUserDefaults.object(forKey: "searchDeduplicate") == nil {
       searchDeduplicate = true
     } else {
