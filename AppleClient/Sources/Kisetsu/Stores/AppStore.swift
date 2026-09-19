@@ -227,6 +227,7 @@ final class AppStore: ObservableObject {
   @Published private(set) var smartSubscriptionFansubOptions: [String] = []
   @Published private(set) var isSmartSubscriptionExistingMatch = false
   @Published var subscriptions: [Subscription] = []
+  @Published var subscriptionListFilter: SubscriptionListFilter = .all
   @Published var refreshQueueStates: [Int: String] = [:]
   @Published var refreshQueueCurrentID: Int?
   @Published var refreshQueueProgressText = ""
@@ -624,6 +625,10 @@ final class AppStore: ObservableObject {
 
   func commitConnectedBackendURL(_ rawValue: String) throws {
     let normalizedURL = try BackendEndpoint.normalizedString(rawValue)
+    if normalizedURL != backendURL {
+      subscriptionListFilter = .all
+      schedulerStatus = nil
+    }
     backendURL = normalizedURL
     _ = overviewLoadSequence.begin()
     overview = nil
@@ -633,6 +638,10 @@ final class AppStore: ObservableObject {
 
   func resetBackendURLToDefault() {
     _ = overviewLoadSequence.begin()
+    if backendURL != Self.defaultBackendURL {
+      subscriptionListFilter = .all
+      schedulerStatus = nil
+    }
     backendURL = Self.defaultBackendURL
     overview = nil
     backendURLDraft = Self.defaultBackendURL

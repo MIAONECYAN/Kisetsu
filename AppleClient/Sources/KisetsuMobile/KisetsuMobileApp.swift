@@ -729,8 +729,10 @@ enum MobileDebugFixtureData {
     second.mikanBangumiUrl = second.sourceUrl
     second.episodeStart = 1
     second.fansub = "示例字幕组 B 与超长联合字幕组名称"
-    second.downloadedCount = 8
-    second.organizedCount = 6
+    second.downloadedCount = 12
+    second.organizedCount = 12
+    second.episodeCount = 12
+    second.coverage = nil
     second.latestOrganizedAt = nil
     second.posterPalette = PosterPalette(
       primary: "#2E7D6F",

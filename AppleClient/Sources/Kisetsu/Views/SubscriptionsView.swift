@@ -26,7 +26,8 @@ struct SubscriptionsView: View {
   @State private var subscriptionSearchFocusID: Int?
 
   private var filteredSubscriptions: [Subscription] {
-    SubscriptionSearch.filter(store.subscriptions, query: subscriptionSearch.query)
+    let scoped = store.subscriptionListFilter.apply(to: store.subscriptions)
+    return SubscriptionSearch.filter(scoped, query: subscriptionSearch.query)
   }
 
   var body: some View {
@@ -50,6 +51,10 @@ struct SubscriptionsView: View {
       SubscriptionList(
         subscriptions: filteredSubscriptions,
         searchText: subscriptionSearch.query,
+        filter: store.subscriptionListFilter,
+        showAll: {
+          store.subscriptionListFilter = .all
+        },
         edit: { subscription in
           store.editSubscription(subscription)
           showingEditor = true
@@ -232,6 +237,7 @@ struct SubscriptionsView: View {
 
 private struct SubscriptionToolbar: View {
   @EnvironmentObject private var store: AppStore
+  @State private var showingTools = false
   var search: SubscriptionSearchPresentationState
   var searchResultCount: Int
   var totalSubscriptionCount: Int
@@ -245,7 +251,13 @@ private struct SubscriptionToolbar: View {
       Spacer(minLength: 12)
       searchButton
     }
-    .appToolbarSurface()
+    .padding(.horizontal, KisetsuStyle.pagePadding)
+    .padding(.vertical, KisetsuStyle.toolbarVerticalPadding)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color(nsColor: .textBackgroundColor))
+    .overlay(alignment: .bottom) {
+      Divider()
+    }
   }
 
   @ViewBuilder
@@ -280,45 +292,20 @@ private struct SubscriptionToolbar: View {
       }
       .disabled(store.lastRefreshResponse == nil && store.lastRefreshAllResponse == nil)
 
-      Divider()
-        .frame(height: 20)
-
-      Stepper(value: $store.schedulerIntervalSeconds, in: 60...86400, step: 60) {
-        Text("\(store.schedulerIntervalSeconds / 60)m")
-      }
-      .frame(width: 112)
-
       Button {
-        Task { await store.startScheduler() }
+        showingTools.toggle()
       } label: {
-        Image(systemName: "play.circle")
+        Image(
+          systemName: store.subscriptionListFilter == .all
+            ? "line.3.horizontal.decrease.circle"
+            : "line.3.horizontal.decrease.circle.fill"
+        )
       }
-      .disabled(store.isLoading)
-      .help("启动自动刷新")
-
-      Button {
-        Task { await store.stopScheduler() }
-      } label: {
-        Image(systemName: "stop.circle")
-      }
-      .disabled(store.isLoading)
-      .help("停止自动刷新")
-
-      if let status = store.schedulerStatus {
-        VStack(alignment: .leading, spacing: 2) {
-          Label(status.running ? "运行中" : "已停止", systemImage: status.running ? "clock.badge.checkmark" : "clock")
-            .foregroundStyle(status.running ? .green : .secondary)
-          HStack(spacing: 8) {
-            if let next = timeText(status.nextRunAt) {
-              Text("下次 \(next)")
-            }
-            if let last = timeText(status.lastRunAt) {
-              Text("上次 \(last)")
-            }
-          }
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        }
+      .help("订阅工具")
+      .accessibilityLabel("订阅工具")
+      .popover(isPresented: $showingTools, arrowEdge: .bottom) {
+        SubscriptionToolsPopover()
+          .environmentObject(store)
       }
     }
   }
@@ -332,6 +319,136 @@ private struct SubscriptionToolbar: View {
       itemName: "订阅",
       toggle: toggleSearch
     )
+  }
+
+}
+
+private struct SubscriptionToolsPopover: View {
+  @EnvironmentObject private var store: AppStore
+  @State private var isReadingSchedulerStatus = false
+  @State private var schedulerStatusReadFailed = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Text("筛选")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+      Button {
+        store.subscriptionListFilter = store.subscriptionListFilter == .completed ? .all : .completed
+      } label: {
+        HStack {
+          Text("订阅完成")
+          Spacer()
+          if store.subscriptionListFilter == .completed {
+            Image(systemName: "checkmark")
+              .foregroundStyle(.tint)
+          }
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .frame(minHeight: 28)
+      .accessibilityValue(store.subscriptionListFilter == .completed ? "已开启" : "已关闭")
+
+      Divider()
+
+      Text("自动刷新")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+      if let status = store.schedulerStatus {
+        HStack {
+          Label(
+            status.running ? "运行中" : "已停止",
+            systemImage: status.running ? "clock.badge.checkmark" : "clock"
+          )
+          .foregroundStyle(status.running ? .green : .secondary)
+          Spacer()
+          if store.isLoading {
+            ProgressView()
+              .controlSize(.small)
+          }
+        }
+
+        Stepper(value: $store.schedulerIntervalSeconds, in: 60...86400, step: 60) {
+          LabeledContent("刷新间隔", value: intervalText)
+        }
+
+        if status.running {
+          Button("停止自动刷新", systemImage: "stop.fill") {
+            Task { await store.stopScheduler() }
+          }
+          .disabled(store.isLoading)
+        } else {
+          Button("开启自动刷新", systemImage: "play.fill") {
+            Task { await store.startScheduler() }
+          }
+          .disabled(store.isLoading)
+        }
+
+        if let scheduleText {
+          Text(scheduleText)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      } else if isReadingSchedulerStatus {
+        HStack(spacing: 8) {
+          ProgressView()
+            .controlSize(.small)
+          Text("正在读取自动刷新状态")
+            .foregroundStyle(.secondary)
+          Spacer()
+        }
+      } else {
+        HStack(spacing: 8) {
+          Label(
+            schedulerStatusReadFailed ? "无法读取自动刷新状态" : "尚未读取自动刷新状态",
+            systemImage: schedulerStatusReadFailed ? "exclamationmark.triangle" : "clock"
+          )
+          .foregroundStyle(schedulerStatusReadFailed ? .orange : .secondary)
+          Spacer()
+          Button("重新读取", systemImage: "arrow.clockwise") {
+            Task { await readSchedulerStatus() }
+          }
+          .labelStyle(.iconOnly)
+          .disabled(isReadingSchedulerStatus || store.isLoading)
+        }
+      }
+    }
+    .padding(16)
+    .frame(width: 320)
+    .task {
+      guard store.schedulerStatus == nil else { return }
+      await readSchedulerStatus()
+    }
+  }
+
+  @MainActor
+  private func readSchedulerStatus() async {
+    guard !isReadingSchedulerStatus else { return }
+    isReadingSchedulerStatus = true
+    schedulerStatusReadFailed = false
+    await store.loadSchedulerStatus(silent: true)
+    schedulerStatusReadFailed = store.schedulerStatus == nil
+    isReadingSchedulerStatus = false
+  }
+
+  private var intervalText: String {
+    let seconds = store.schedulerIntervalSeconds
+    if seconds.isMultiple(of: 60) {
+      return "\(seconds / 60) 分钟"
+    }
+    return "\(seconds) 秒"
+  }
+
+  private var scheduleText: String? {
+    guard let status = store.schedulerStatus else { return nil }
+    let values = [
+      timeText(status.nextRunAt).map { "下次 \($0)" },
+      timeText(status.lastRunAt).map { "上次 \($0)" },
+    ].compactMap { $0 }
+    return values.isEmpty ? nil : values.joined(separator: " · ")
   }
 
   private func timeText(_ raw: String?) -> String? {
@@ -1180,6 +1297,8 @@ private struct SubscriptionList: View {
   @EnvironmentObject private var store: AppStore
   var subscriptions: [Subscription]
   var searchText: String
+  var filter: SubscriptionListFilter
+  var showAll: () -> Void
   var edit: (Subscription) -> Void
   var detail: (Subscription) -> Void
 
@@ -1189,11 +1308,17 @@ private struct SubscriptionList: View {
         ContentUnavailableView("暂无订阅", systemImage: "dot.radiowaves.left.and.right", description: Text("当前没有保存的订阅。"))
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if subscriptions.isEmpty {
-        ContentUnavailableView(
-          "没有匹配的订阅",
-          systemImage: "magnifyingglass",
-          description: Text("没有找到与“\(searchText)”匹配的动漫。")
-        )
+        ContentUnavailableView {
+          Label(emptyTitle, systemImage: searchIsActive ? "magnifyingglass" : "line.3.horizontal.decrease.circle")
+        } description: {
+          Text(emptyDescription)
+        } actions: {
+          if filter != .all {
+            Button("显示全部") {
+              showAll()
+            }
+          }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         if !store.refreshQueueProgressText.isEmpty {
@@ -1223,6 +1348,24 @@ private struct SubscriptionList: View {
       }
 
     }
+  }
+
+  private var searchIsActive: Bool {
+    !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private var emptyTitle: String {
+    if searchIsActive {
+      return filter == .all ? "没有匹配的订阅" : "当前范围内没有匹配的订阅"
+    }
+    return filter.emptyTitle
+  }
+
+  private var emptyDescription: String {
+    if searchIsActive {
+      return "没有找到与“\(searchText)”匹配的订阅。"
+    }
+    return filter == .all ? "当前没有保存的订阅。" : "当前显示：\(filter.title)"
   }
 }
 
@@ -1356,9 +1499,14 @@ private struct SubscriptionRow: View {
           } label: {
             Label("更多", systemImage: "ellipsis.circle")
           }
+          .menuStyle(.borderlessButton)
+          .frame(width: 72, alignment: .trailing)
+          .fixedSize()
           .disabled(store.isLoading)
         }
+        .fixedSize()
       }
+      .fixedSize(horizontal: true, vertical: false)
     }
     .padding(14)
     .animeCard()

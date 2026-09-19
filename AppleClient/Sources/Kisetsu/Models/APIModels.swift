@@ -1233,6 +1233,189 @@ struct SubscriptionTargetProgressPresentation: Hashable {
   }
 }
 
+enum SubscriptionListFilter: String, CaseIterable, Identifiable, Hashable {
+  case all
+  case completed
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .all: "全部订阅"
+    case .completed: "订阅完成"
+    }
+  }
+
+  var emptyTitle: String {
+    switch self {
+    case .all: "暂无订阅"
+    case .completed: "没有订阅完成的项目"
+    }
+  }
+
+  func includes(_ subscription: Subscription) -> Bool {
+    switch self {
+    case .all:
+      true
+    case .completed:
+      SubscriptionCompletionPresentation(subscription: subscription).isComplete
+    }
+  }
+
+  func apply(to subscriptions: [Subscription]) -> [Subscription] {
+    guard self != .all else { return subscriptions }
+    return subscriptions.filter(includes)
+  }
+}
+
+struct SubscriptionCompletionPresentation: Hashable {
+  private enum EpisodeFilterParseResult: Equatable {
+    case absent
+    case valid(Set<Int>)
+    case invalid
+  }
+
+  let targetEpisodes: Set<Int>?
+  let downloadedEpisodes: Set<Int>?
+  let organizedEpisodes: Set<Int>?
+  let isComplete: Bool
+
+  init(subscription: Subscription) {
+    if Self.parseEpisodeFilter(subscription.episodeFilter) == .invalid {
+      targetEpisodes = nil
+      downloadedEpisodes = nil
+      organizedEpisodes = nil
+      isComplete = false
+      return
+    }
+
+    let progress = SubscriptionTargetProgressPresentation(subscription: subscription)
+    guard let progressMetrics = progress.metrics else {
+      targetEpisodes = nil
+      downloadedEpisodes = nil
+      organizedEpisodes = nil
+      isComplete = false
+      return
+    }
+
+    guard let coverage = subscription.coverage,
+          let catalogTotal = Self.catalogTotal(subscription: subscription, coverage: coverage),
+          catalogTotal > 0,
+          let targets = Self.targetEpisodes(
+            subscription: subscription,
+            catalogTotal: catalogTotal
+          ),
+          !targets.isEmpty else {
+      targetEpisodes = nil
+      downloadedEpisodes = subscription.coverage.flatMap { Self.episodeSet(from: $0.downloadedRanges) }
+      organizedEpisodes = subscription.coverage.flatMap { Self.episodeSet(from: $0.organizedRanges) }
+      isComplete = progressMetrics.downloaded >= progressMetrics.total
+        && progressMetrics.organized >= progressMetrics.total
+      return
+    }
+
+    targetEpisodes = targets
+    downloadedEpisodes = Self.episodeSet(from: coverage.downloadedRanges)
+    organizedEpisodes = Self.episodeSet(from: coverage.organizedRanges)
+
+    if let downloadedEpisodes, let organizedEpisodes,
+       targets.isSubset(of: downloadedEpisodes),
+       targets.isSubset(of: organizedEpisodes) {
+      isComplete = true
+      return
+    }
+
+    let backendTarget = coverage.targetTotalEpisodes ?? (coverage.totalEpisodes > 0 ? coverage.totalEpisodes : nil)
+    isComplete = backendTarget == targets.count
+      && progressMetrics.total == targets.count
+      && progressMetrics.downloaded >= targets.count
+      && progressMetrics.organized >= targets.count
+  }
+
+  private static func catalogTotal(
+    subscription: Subscription,
+    coverage: SubscriptionCoverageSummary
+  ) -> Int? {
+    if let value = coverage.catalogTotalEpisodes, value > 0 { return value }
+    if let value = subscription.totalEpisodes, value > 0 { return value }
+    if let value = subscription.metadataEpisodeCount, value > 0 { return value }
+    return nil
+  }
+
+  private static func targetEpisodes(
+    subscription: Subscription,
+    catalogTotal: Int
+  ) -> Set<Int>? {
+    let start = max(1, (subscription.episodeStart ?? 1) + subscription.episodeOffset)
+    guard start <= catalogTotal else { return [] }
+    var targets = Set(start...catalogTotal)
+
+    if let episode = subscription.episode {
+      let logicalEpisode = episode + subscription.episodeOffset
+      targets.formIntersection([logicalEpisode])
+    }
+
+    switch parseEpisodeFilter(subscription.episodeFilter) {
+    case .absent:
+      break
+    case .valid(let filteredEpisodes):
+      targets.formIntersection(filteredEpisodes)
+    case .invalid:
+      return nil
+    }
+
+    return targets
+  }
+
+  private static func parseEpisodeFilter(_ value: String?) -> EpisodeFilterParseResult {
+    guard let value else { return .absent }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return .absent }
+
+    var episodes: Set<Int> = []
+    for rawPart in trimmed.split(separator: ",", omittingEmptySubsequences: false) {
+      let part = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !part.isEmpty else { return .invalid }
+      if let episode = Int(part), episode > 0 {
+        episodes.insert(episode)
+        continue
+      }
+      let bounds = part.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+      guard bounds.count == 2,
+            let lower = Int(bounds[0].trimmingCharacters(in: .whitespacesAndNewlines)),
+            let upper = Int(bounds[1].trimmingCharacters(in: .whitespacesAndNewlines)),
+            lower > 0,
+            upper >= lower else {
+        return .invalid
+      }
+      episodes.formUnion(lower...upper)
+    }
+    return episodes.isEmpty ? .invalid : .valid(episodes)
+  }
+
+  private static func episodeSet(from ranges: [String]) -> Set<Int>? {
+    guard !ranges.isEmpty else { return [] }
+    var episodes: Set<Int> = []
+    for rawRange in ranges {
+      let value = rawRange.trimmingCharacters(in: .whitespacesAndNewlines)
+      if let episode = Int(value), episode > 0 {
+        episodes.insert(episode)
+        continue
+      }
+      let bounds = value.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+      guard bounds.count == 2,
+            let lower = Int(bounds[0].trimmingCharacters(in: .whitespacesAndNewlines)),
+            let upper = Int(bounds[1].trimmingCharacters(in: .whitespacesAndNewlines)),
+            lower > 0,
+            upper >= lower else {
+        return nil
+      }
+      episodes.formUnion(lower...upper)
+    }
+    return episodes
+  }
+}
+
 struct OverviewActionTarget: Codable, Hashable {
   var targetType: String
   var targetId: String?

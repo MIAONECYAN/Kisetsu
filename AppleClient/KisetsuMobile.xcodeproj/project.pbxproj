@@ -48,6 +48,7 @@
 		FBF49792FB4AD32BAE76A23B /* MobileRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C06C44E631387E03BE023A9 /* MobileRootView.swift */; };
 		FBFF63208074E1A7B2F7CEBD /* MobileAutoRefreshFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 263328BD9D949219ED6B1C46 /* MobileAutoRefreshFixture.swift */; };
 		FF95BCD9E0FFC2AEAB71080B /* AIProviderCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07BB4874AD59E0CF3126BE39 /* AIProviderCatalog.swift */; };
+		A7C164706EF542DDB87470CE /* SecretValueField.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A49DE54B5B4D019D89458A /* SecretValueField.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -105,6 +106,7 @@
 		F2C4B66C741D14AE9D58604E /* MobileTasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTasksView.swift; sourceTree = "<group>"; };
 		F545037BDF974FAA16A4F775 /* StatusLabels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusLabels.swift; sourceTree = "<group>"; };
 		FE8B319DF2C54110C3AB3C40 /* KisetsuMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KisetsuMobileApp.swift; sourceTree = "<group>"; };
+		D3A49DE54B5B4D019D89458A /* SecretValueField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SecretValueField.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -186,6 +188,7 @@
 				F56FBBAA7D5C2F2F956FAE5B /* Models */,
 				FDE42596339BFDCEA5B03303 /* Services */,
 				C9E18DAF582B86A7296BC9D6 /* Stores */,
+				D3A49DE54B5B4D019D89458A /* SecretValueField.swift */,
 			);
 			path = Kisetsu;
 			sourceTree = "<group>";
@@ -382,6 +385,7 @@
 				2D951D3675E91E41EB9A17D6 /* PlaylistItemPresentation.swift in Sources */,
 				0E0FBA02D4D4EE43DF2DFA91 /* StatusLabels.swift in Sources */,
 				D68802E2AB103B65C7704D8C /* SubscriptionKeywordExpression.swift in Sources */,
+				A7C164706EF542DDB87470CE /* SecretValueField.swift in Sources */,
 				CFAB6ADCB6D5D8CDC939D8B2 /* SubscriptionSearch.swift in Sources */,
 				053CDF85D9F3BA19F5C0AFFB /* SubscriptionSearchPresentationState.swift in Sources */,
 				C61F0DA3957A8DF8692E08B7 /* SubscriptionSizeFilterDraft.swift in Sources */,

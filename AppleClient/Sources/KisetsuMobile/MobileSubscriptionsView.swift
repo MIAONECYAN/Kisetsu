@@ -10,13 +10,22 @@ struct MobileSubscriptionsView: View {
   @State private var isReadingSubscriptions = false
 
   private var visibleSubscriptions: [Subscription] {
-    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return store.subscriptions }
-    return store.subscriptions.filter { subscription in
-      ([subscription.name, subscription.keyword] + subscription.aliases).contains {
-        $0.localizedCaseInsensitiveContains(trimmed)
-      }
+    let scoped = store.subscriptionListFilter.apply(to: store.subscriptions)
+    return SubscriptionSearch.filter(scoped, query: query)
+  }
+
+  private var emptyTitle: String {
+    if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return store.subscriptionListFilter == .all
+        ? "没有匹配的订阅"
+        : "当前范围内没有匹配的订阅"
     }
+    return store.subscriptionListFilter.emptyTitle
+  }
+
+  private var emptyDescription: String? {
+    guard store.subscriptionListFilter != .all else { return nil }
+    return "当前显示：\(store.subscriptionListFilter.title)"
   }
 
   var body: some View {
@@ -26,10 +35,22 @@ struct MobileSubscriptionsView: View {
           .frame(maxWidth: .infinity, minHeight: 360)
           .listRowBackground(Color.clear)
       } else if visibleSubscriptions.isEmpty {
-        ContentUnavailableView(
-          query.isEmpty ? "暂无订阅" : "没有匹配的订阅",
-          systemImage: query.isEmpty ? "dot.radiowaves.left.and.right" : "magnifyingglass"
-        )
+        ContentUnavailableView {
+          Label(
+            emptyTitle,
+            systemImage: query.isEmpty ? "line.3.horizontal.decrease.circle" : "magnifyingglass"
+          )
+        } description: {
+          if let emptyDescription {
+            Text(emptyDescription)
+          }
+        } actions: {
+          if store.subscriptionListFilter != .all {
+            Button("显示全部") {
+              store.subscriptionListFilter = .all
+            }
+          }
+        }
         .frame(maxWidth: .infinity, minHeight: 360)
         .listRowBackground(Color.clear)
       } else {
@@ -70,8 +91,21 @@ struct MobileSubscriptionsView: View {
           showingEditor = true
         }
         Menu("更多操作", systemImage: "ellipsis") {
-          Button("自动刷新", systemImage: "clock.arrow.circlepath") {
-            showingAutoRefresh = true
+          Section("筛选") {
+            Button {
+              store.subscriptionListFilter = store.subscriptionListFilter == .completed ? .all : .completed
+            } label: {
+              Label(
+                "订阅完成",
+                systemImage: store.subscriptionListFilter == .completed ? "checkmark" : "circle"
+              )
+            }
+            .accessibilityValue(store.subscriptionListFilter == .completed ? "已开启" : "已关闭")
+          }
+          Section {
+            Button("自动刷新", systemImage: "clock.arrow.circlepath") {
+              showingAutoRefresh = true
+            }
           }
         }
       }
