@@ -23,8 +23,7 @@ if [[ "$MODE" == "--fixture" ]]; then
   DIST_DIR="/private/tmp/Kisetsu-DesktopFixture"
   BUNDLE_ID="com.kisetsu.desktop.fixture"
   BUILD_CONFIGURATION="debug"
-  BUILD_PATH_ARGS=()
-  SOURCE_PATH_ARGS=()
+  BUILD_PATH_ARGS=(--build-path "/private/tmp/Kisetsu-DesktopFixtureBuild")
   export KISETSU_DESKTOP_USE_FIXTURES=1
 else
   unset KISETSU_DESKTOP_USE_FIXTURES ANIMEPILOT_DESKTOP_USE_FIXTURES

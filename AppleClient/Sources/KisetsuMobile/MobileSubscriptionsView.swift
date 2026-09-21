@@ -110,8 +110,14 @@ struct MobileSubscriptionsView: View {
         }
       }
     }
-    .sheet(isPresented: $showingEditor) {
+    .sheet(isPresented: $showingEditor, onDismiss: {
+      Task { await store.runPendingMetadataRecognitionIfNeeded() }
+    }) {
       MobileSubscriptionEditorView()
+        .environmentObject(store)
+    }
+    .sheet(isPresented: $store.showingMetadataReview) {
+      MobileMetadataReviewSheet()
         .environmentObject(store)
     }
     .sheet(isPresented: $showingAutoRefresh) {

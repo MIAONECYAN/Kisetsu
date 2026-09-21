@@ -41,13 +41,19 @@ struct MobileSearchView: View {
       }
 
       if store.visibleSearchResults.isEmpty {
-        ContentUnavailableView(
-          store.searchResults.isEmpty ? "搜索资源" : "没有符合筛选的资源",
-          systemImage: store.searchResults.isEmpty ? "magnifyingglass" : "line.3.horizontal.decrease.circle",
-          description: Text(store.searchResults.isEmpty ? "输入关键词并选择站点后开始搜索。" : "调整或重置当前筛选条件。")
-        )
-        .frame(maxWidth: .infinity, minHeight: 320)
-        .listRowBackground(Color.clear)
+        if isSearching {
+          ProgressView("正在搜索")
+            .frame(maxWidth: .infinity, minHeight: 320)
+            .listRowBackground(Color.clear)
+        } else {
+          ContentUnavailableView(
+            store.searchResults.isEmpty ? "搜索资源" : "没有符合筛选的资源",
+            systemImage: store.searchResults.isEmpty ? "magnifyingglass" : "line.3.horizontal.decrease.circle",
+            description: Text(store.searchResults.isEmpty ? "输入关键词并选择站点后开始搜索。" : "调整或重置当前筛选条件。")
+          )
+          .frame(maxWidth: .infinity, minHeight: 320)
+          .listRowBackground(Color.clear)
+        }
       } else {
         ForEach(store.visibleSearchResults) { result in
           Button {
@@ -119,9 +125,20 @@ struct MobileSearchView: View {
         } label: {
           Label("搜索选项", systemImage: "slider.horizontal.3")
         }
-        Button("搜索", systemImage: "magnifyingglass") {
+        Button {
           Task { await store.performSearch() }
+        } label: {
+          Group {
+            if isSearching {
+              ProgressView()
+                .controlSize(.small)
+            } else {
+              Image(systemName: "magnifyingglass")
+            }
+          }
+          .frame(width: 18, height: 18)
         }
+        .accessibilityLabel(isSearching ? "正在搜索" : "搜索")
         .disabled(store.isLoading || store.searchKeyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }
     }
@@ -167,10 +184,16 @@ struct MobileSearchView: View {
       MobileMetadataReviewSheet()
         .environmentObject(store)
     }
-    .sheet(isPresented: $showingSubscriptionEditor) {
+    .sheet(isPresented: $showingSubscriptionEditor, onDismiss: {
+      Task { await store.runPendingMetadataRecognitionIfNeeded() }
+    }) {
       MobileSubscriptionEditorView()
         .environmentObject(store)
     }
+  }
+
+  private var isSearching: Bool {
+    store.isLoading && store.activeOperationLabel == "搜索资源"
   }
 
   @ViewBuilder

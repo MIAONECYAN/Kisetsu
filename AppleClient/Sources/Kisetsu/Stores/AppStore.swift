@@ -324,6 +324,7 @@ final class AppStore: ObservableObject {
   @Published var metadataMergeSummary: String?
   @Published var showingMetadataReview = false
   @Published var pendingMetadataRecognitionSubscriptionID: Int?
+  private var pendingMetadataRecognitionBackendURL: String?
   @Published var metadataBindings: [MetadataBindingRecord] = []
   @Published var metadataTargetType = "resource"
   @Published var metadataTargetID = "manual"
@@ -516,10 +517,16 @@ final class AppStore: ObservableObject {
     backendURL = normalizedBackendURL
     backendURLDraft = normalizedBackendURL
     backendUserDefaults.set(normalizedBackendURL, forKey: "backendURL")
-    libraryRoot = UserDefaults.standard.string(forKey: "libraryRoot")
-      ?? FileManager.default.homeDirectoryForCurrentUser
+    #if os(macOS)
+      let defaultLibraryRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Movies/Anime Library", isDirectory: true)
         .path
+    #else
+      let defaultLibraryRoot = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Anime Library", isDirectory: true)
+        .path
+    #endif
+    libraryRoot = UserDefaults.standard.string(forKey: "libraryRoot") ?? defaultLibraryRoot
     if backendUserDefaults.object(forKey: "searchDeduplicate") == nil {
       searchDeduplicate = true
     } else {
@@ -631,6 +638,8 @@ final class AppStore: ObservableObject {
     if normalizedURL != backendURL {
       subscriptionListFilter = .all
       schedulerStatus = nil
+      pendingMetadataRecognitionSubscriptionID = nil
+      pendingMetadataRecognitionBackendURL = nil
     }
     backendURL = normalizedURL
     _ = overviewLoadSequence.begin()
@@ -644,6 +653,8 @@ final class AppStore: ObservableObject {
     if backendURL != Self.defaultBackendURL {
       subscriptionListFilter = .all
       schedulerStatus = nil
+      pendingMetadataRecognitionSubscriptionID = nil
+      pendingMetadataRecognitionBackendURL = nil
     }
     backendURL = Self.defaultBackendURL
     overview = nil
@@ -2025,6 +2036,8 @@ final class AppStore: ObservableObject {
       return
     }
     let requestedPage = searchPaginationEnabled ? max(1, page ?? 1) : nil
+    let endpoint = backendURL
+    let requestClient = client
     let succeeded = await run(
       "搜索资源",
       loadingDetail: requestedPage.map { "正在搜索第 \($0) 页，每个站点仅请求一页：\(keyword)" }
@@ -2032,7 +2045,7 @@ final class AppStore: ObservableObject {
       successTitle: "搜索完成",
       successDetail: { self.searchSummaryText.isEmpty ? "找到 \(self.searchResults.count) 条结果，警告 \(self.lastWarningCount) 条" : self.searchSummaryText }
     ) {
-      let response = try await client.search(
+      let response = try await requestClient.search(
         keyword: keyword,
         sites: Array(requestedSiteIDs).sorted(),
         deduplicate: searchDeduplicate,
@@ -2041,6 +2054,11 @@ final class AppStore: ObservableObject {
         maxPages: requestedPage == nil ? nil : 1,
         timeoutSeconds: searchSettings.siteTimeoutSeconds
       )
+      guard self.backendURL == endpoint,
+            self.searchKeyword.trimmingCharacters(in: .whitespacesAndNewlines) == keyword
+      else {
+        throw CancellationError()
+      }
       if requestedPage != nil,
          response.results.isEmpty,
          let failedSite = response.diagnostics?.siteDiagnostics.first(where: { $0.error != nil }) {
@@ -2708,11 +2726,15 @@ final class AppStore: ObservableObject {
         await loadSubscriptions()
       }
     } else {
+      let endpoint = backendURL
+      let requestClient = client
       return await run("创建订阅", successTitle: "订阅已创建", successDetail: { payload.name }) {
-        let created = try await client.createSubscription(payload)
+        let created = try await requestClient.createSubscription(payload)
+        guard self.backendURL == endpoint else { throw CancellationError() }
         try validateSubscriptionSizePersistence(payload: payload, persisted: created)
         if initialMetadataQuery(for: created) != nil {
           pendingMetadataRecognitionSubscriptionID = created.id
+          pendingMetadataRecognitionBackendURL = endpoint
         } else {
           setStatus(.success, title: "订阅已创建", detail: "订阅已创建。补充番名后可识别番剧信息。")
         }
@@ -3370,11 +3392,25 @@ final class AppStore: ObservableObject {
 
   func runPendingMetadataRecognitionIfNeeded() async {
     guard let subscriptionID = pendingMetadataRecognitionSubscriptionID else { return }
-    pendingMetadataRecognitionSubscriptionID = nil
-    guard let subscription = subscriptions.first(where: { $0.id == subscriptionID }) else {
-      setStatus(.empty, title: "暂不能识别番剧信息", detail: "订阅已创建，但列表尚未加载完成。可稍后重新识别。")
+    guard pendingMetadataRecognitionBackendURL == nil || pendingMetadataRecognitionBackendURL == backendURL else {
+      pendingMetadataRecognitionSubscriptionID = nil
+      pendingMetadataRecognitionBackendURL = nil
       return
     }
+    let subscription: Subscription
+    if let loaded = subscriptions.first(where: { $0.id == subscriptionID }) {
+      subscription = loaded
+    } else {
+      do {
+        subscription = try await client.subscriptionDetail(id: subscriptionID).subscription
+      } catch {
+        setStatus(.failed, title: "暂不能识别番剧信息", detail: "订阅已创建，但暂时无法读取详情。请稍后重试。")
+        appendLog("读取新订阅详情失败：\(error.localizedDescription)")
+        return
+      }
+    }
+    pendingMetadataRecognitionSubscriptionID = nil
+    pendingMetadataRecognitionBackendURL = nil
     await matchMetadata(for: subscription, initialRecognition: true)
   }
 

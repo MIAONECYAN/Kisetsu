@@ -333,12 +333,15 @@ private struct SubscriptionToolsPopover: View {
       Button {
         store.subscriptionListFilter = store.subscriptionListFilter == .completed ? .all : .completed
       } label: {
-        HStack {
-          Label("订阅完成", systemImage: "checkmark.circle")
+        HStack(spacing: 8) {
+          Image(
+            systemName: store.subscriptionListFilter == .completed
+              ? "checkmark.circle.fill"
+              : "circle"
+          )
+          .foregroundStyle(store.subscriptionListFilter == .completed ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+          Text("订阅完成")
           Spacer()
-          if store.subscriptionListFilter == .completed {
-            Image(systemName: "checkmark")
-          }
         }
         .contentShape(Rectangle())
       }
