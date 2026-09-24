@@ -877,6 +877,7 @@ class SubscriptionCreate(BaseModel):
     total_episodes: int | None = Field(default=None, ge=1)
     total_episodes_source: Literal["manual", "bangumi", "tmdb", "mikan", "unknown"] | None = None
     metadata_episode_count: int | None = Field(default=None, ge=1)
+    auto_update_total_episodes: bool = True
     enabled: bool = True
     auto_download: bool = True
     organize_target_id: int | None = None

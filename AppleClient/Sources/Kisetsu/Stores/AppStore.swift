@@ -95,6 +95,7 @@ final class AppStore: ObservableObject {
 
   private let backendUserDefaults: UserDefaults
   @Published private(set) var backendURL: String
+  private var backendRevision: UInt64 = 0
   @Published var backendURLDraft: String
   @Published var healthText = "未知"
   @Published var backendConnectionDetail = "尚未检测。若站点管理为空或提示无法连接，请先启动后端。"
@@ -269,6 +270,7 @@ final class AppStore: ObservableObject {
   @Published private(set) var subscriptionTotalEpisodesSource: String?
   private var subscriptionTotalEpisodesBaseline: Int?
   private var subscriptionMetadataEpisodeCount: Int?
+  @Published var subscriptionAutoUpdateTotalEpisodes = true
   @Published var subscriptionSavePath = ""
   @Published var subscriptionCategory = ""
   @Published var subscriptionTags = ""
@@ -636,6 +638,8 @@ final class AppStore: ObservableObject {
   func commitConnectedBackendURL(_ rawValue: String) throws {
     let normalizedURL = try BackendEndpoint.normalizedString(rawValue)
     if normalizedURL != backendURL {
+      backendRevision &+= 1
+      _ = subscriptionLoadSequence.begin()
       subscriptionListFilter = .all
       schedulerStatus = nil
       pendingMetadataRecognitionSubscriptionID = nil
@@ -651,6 +655,8 @@ final class AppStore: ObservableObject {
   func resetBackendURLToDefault() {
     _ = overviewLoadSequence.begin()
     if backendURL != Self.defaultBackendURL {
+      backendRevision &+= 1
+      _ = subscriptionLoadSequence.begin()
       subscriptionListFilter = .all
       schedulerStatus = nil
       pendingMetadataRecognitionSubscriptionID = nil
@@ -2304,7 +2310,8 @@ final class AppStore: ObservableObject {
       seedingPolicyMode: "inherit",
       savePath: subscriptionDownloaderSavePath,
       category: subscriptionDownloaderCategory,
-      tags: subscriptionDownloaderTags
+      tags: subscriptionDownloaderTags,
+      autoUpdateTotalEpisodes: subscriptionAutoUpdateTotalEpisodes
     )
     await run("创建订阅", successTitle: "订阅已创建", successDetail: { keyword }) {
       _ = try await client.createSubscription(subscription)
@@ -2440,6 +2447,7 @@ final class AppStore: ObservableObject {
     subscriptionTotalEpisodesSource = suggestion.totalEpisodesSource
     subscriptionTotalEpisodesBaseline = suggestion.totalEpisodes
     subscriptionMetadataEpisodeCount = suggestion.metadataEpisodeCount
+    subscriptionAutoUpdateTotalEpisodes = suggestion.autoUpdateTotalEpisodes ?? true
     subscriptionSavePath = suggestion.savePath ?? ""
     subscriptionCategory = suggestion.category ?? ""
     subscriptionTags = suggestion.tags.joined(separator: ", ")
@@ -2813,6 +2821,7 @@ final class AppStore: ObservableObject {
     subscriptionTotalEpisodesSource = subscription.totalEpisodesSource
     subscriptionTotalEpisodesBaseline = subscription.totalEpisodes
     subscriptionMetadataEpisodeCount = subscription.metadataEpisodeCount
+    subscriptionAutoUpdateTotalEpisodes = subscription.autoUpdateTotalEpisodes ?? true
     subscriptionSavePath = subscription.savePath ?? ""
     subscriptionCategory = subscription.category ?? ""
     subscriptionTags = subscription.tags.joined(separator: ", ")
@@ -3071,14 +3080,17 @@ final class AppStore: ObservableObject {
 
   func loadSubscriptions(silent: Bool = false) async {
     let requestID = subscriptionLoadSequence.begin()
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestClient = client
     if silent {
       do {
-        let loaded = try await client.subscriptions()
-        guard subscriptionLoadSequence.accepts(requestID) else { return }
+        let loaded = try await requestClient.subscriptions()
+        guard backendURL == endpoint, backendRevision == revision, subscriptionLoadSequence.accepts(requestID) else { return }
         updateSubscriptions(loaded)
         await loadOverview(silent: true)
       } catch {
-        guard subscriptionLoadSequence.accepts(requestID) else { return }
+        guard backendURL == endpoint, backendRevision == revision, subscriptionLoadSequence.accepts(requestID) else { return }
         appendLog("静默更新订阅失败：\(error.localizedDescription)")
       }
       return
@@ -3086,14 +3098,14 @@ final class AppStore: ObservableObject {
     await run("加载订阅", successDetail: { "共 \(self.subscriptions.count) 个订阅" }) {
       let loaded: [Subscription]
       do {
-        loaded = try await client.subscriptions()
+        loaded = try await requestClient.subscriptions()
       } catch {
-        guard subscriptionLoadSequence.accepts(requestID) else {
+        guard backendURL == endpoint, backendRevision == revision, subscriptionLoadSequence.accepts(requestID) else {
           throw CancellationError()
         }
         throw error
       }
-      guard subscriptionLoadSequence.accepts(requestID) else {
+      guard backendURL == endpoint, backendRevision == revision, subscriptionLoadSequence.accepts(requestID) else {
         throw CancellationError()
       }
       updateSubscriptions(loaded)
@@ -3109,13 +3121,17 @@ final class AppStore: ObservableObject {
   }
 
   func refreshSubscription(_ subscription: Subscription) async {
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestClient = client
     await run(
       "刷新订阅",
       loadingDetail: subscription.name,
       successTitle: "订阅刷新完成",
       successDetail: { self.lastRefreshResponse?.diagnostics.map { "抓取 \($0.totalFetched)，匹配 \($0.matchedCount)，跳过 \(self.lastRefreshResponse?.skipped.count ?? 0)" } ?? "匹配 \(self.lastRefreshResponse?.matched.count ?? 0)，新增 \(self.lastRefreshResponse?.added.count ?? 0)，跳过 \(self.lastRefreshResponse?.skipped.count ?? 0)" }
     ) {
-      let response = try await client.refreshSubscription(id: subscription.id)
+      let response = try await requestClient.refreshSubscription(id: subscription.id)
+      guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
       showingRefreshAllSummary = false
       lastRefreshResponse = response
       selectedMatchSubscriptionID = subscription.id
@@ -3135,12 +3151,18 @@ final class AppStore: ObservableObject {
       }
       response.warnings.forEach { appendLog($0) }
       await loadHistory()
-      selectedSubscriptionDetail = try await client.subscriptionDetail(id: subscription.id)
-      updateSubscriptions(try await client.subscriptions())
+      let detail = try await requestClient.subscriptionDetail(id: subscription.id)
+      let loaded = try await requestClient.subscriptions()
+      guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
+      selectedSubscriptionDetail = detail
+      updateSubscriptions(loaded)
     }
   }
 
   func refreshAllSubscriptions() async {
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestClient = client
     let queue = subscriptions.filter(\.enabled)
     let skipped = subscriptions.filter { !$0.enabled }.count
     guard !queue.isEmpty else {
@@ -3165,19 +3187,24 @@ final class AppStore: ObservableObject {
       var responses: [RefreshResponse] = []
       var warnings: [String] = []
       for (index, subscription) in queue.enumerated() {
+        guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
         refreshQueueCurrentID = subscription.id
         refreshQueueStates[subscription.id] = "running"
         refreshQueueProgressText = "正在刷新 \(index + 1) / \(queue.count)：\(subscription.name)"
         appendLog(refreshQueueProgressText)
         do {
-          let response = try await client.refreshSubscription(id: subscription.id)
+          let response = try await requestClient.refreshSubscription(id: subscription.id)
+          guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
+          let loaded = try await requestClient.subscriptions()
+          guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
           responses.append(response)
           refreshQueueStates[subscription.id] = response.warnings.isEmpty ? "done" : "done"
-          updateSubscriptions(try await client.subscriptions())
+          updateSubscriptions(loaded)
           lastRefreshResponse = response
           selectedMatchSubscriptionID = subscription.id
           subscriptionMatches = response.matchRecords
         } catch {
+          guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
           refreshQueueStates[subscription.id] = "failed"
           let message = "订阅 \(subscription.name) 刷新失败：\(error.localizedDescription)"
           warnings.append(message)
@@ -3191,7 +3218,9 @@ final class AppStore: ObservableObject {
         lastRefreshResponse = first
         selectedMatchSubscriptionID = first.subscriptionId
         subscriptionMatches = first.matchRecords
-        selectedSubscriptionDetail = try await client.subscriptionDetail(id: first.subscriptionId)
+        let detail = try await requestClient.subscriptionDetail(id: first.subscriptionId)
+        guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
+        selectedSubscriptionDetail = detail
       } else {
         lastRefreshResponse = nil
         selectedMatchSubscriptionID = nil
@@ -3204,7 +3233,9 @@ final class AppStore: ObservableObject {
       response.warnings.forEach { appendLog($0) }
       response.responses.flatMap(\.warnings).forEach { appendLog($0) }
       await loadHistory()
-      updateSubscriptions(try await client.subscriptions())
+      let loaded = try await requestClient.subscriptions()
+      guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
+      updateSubscriptions(loaded)
       refreshQueueCurrentID = nil
       refreshQueueRunning = false
     }
@@ -5088,7 +5119,8 @@ final class AppStore: ObservableObject {
       postSeedingAction: subscriptionPostSeedingAction,
       savePath: nilIfEmpty(subscriptionSavePath) ?? subscriptionDownloaderSavePath,
       category: nilIfEmpty(subscriptionCategory) ?? subscriptionDownloaderCategory,
-      tags: tags.isEmpty ? subscriptionDownloaderTags : tags
+      tags: tags.isEmpty ? subscriptionDownloaderTags : tags,
+      autoUpdateTotalEpisodes: subscriptionAutoUpdateTotalEpisodes
     )
   }
 
@@ -5180,7 +5212,8 @@ final class AppStore: ObservableObject {
       postSeedingAction: subscription.postSeedingAction ?? "pause",
       savePath: subscription.savePath,
       category: subscription.category,
-      tags: subscription.tags
+      tags: subscription.tags,
+      autoUpdateTotalEpisodes: subscription.autoUpdateTotalEpisodes ?? true
     )
   }
 
@@ -5220,6 +5253,7 @@ final class AppStore: ObservableObject {
     subscriptionTotalEpisodesSource = nil
     subscriptionTotalEpisodesBaseline = nil
     subscriptionMetadataEpisodeCount = nil
+    subscriptionAutoUpdateTotalEpisodes = true
     subscriptionSavePath = ""
     subscriptionCategory = ""
     subscriptionTags = ""

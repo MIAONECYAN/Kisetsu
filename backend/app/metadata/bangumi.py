@@ -9,6 +9,98 @@ from app.models import MetadataCandidate
 from app.settings import bangumi_user_agent
 
 
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float) and value.is_integer():
+        parsed = int(value)
+        return parsed if parsed > 0 else None
+    if isinstance(value, str):
+        try:
+            parsed = int(value.strip())
+        except ValueError:
+            return None
+        return parsed if parsed > 0 else None
+    return None
+
+
+def _infobox_episode_count(item: dict[str, Any]) -> int | None:
+    for entry in item.get("infobox") or []:
+        if not isinstance(entry, dict) or str(entry.get("key", "")).strip() != "话数":
+            continue
+        value = entry.get("value")
+        if isinstance(value, list):
+            value = next((part.get("v") for part in value if isinstance(part, dict) and part.get("v")), None)
+        count = _positive_int(value)
+        if count is not None:
+            return count
+    return None
+
+
+def _chapter_number(chapter: dict[str, Any]) -> int | None:
+    for key in ("sort", "ep", "episode_number", "number"):
+        number = _positive_int(chapter.get(key))
+        if number is not None:
+            return number
+    return None
+
+
+def _chapter_type(chapter: dict[str, Any]) -> bool | None:
+    if chapter.get("is_sp") is True or chapter.get("special") is True:
+        return True
+    for key in ("type", "episode_type", "kind"):
+        value = chapter.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value != 0 if 0 <= value <= 6 else None
+        normalized = str(value or "").strip().casefold()
+        if normalized in {"sp", "special"}:
+            return True
+        if normalized in {"regular", "main", "normal"}:
+            return False
+        if normalized.isdigit():
+            parsed = int(normalized)
+            return parsed != 0 if 0 <= parsed <= 6 else None
+    return None
+
+
+def total_episodes_from_subject(item: dict[str, Any]) -> int | None:
+    """Return a reliable Bangumi total without interpreting chapter titles."""
+    for key in ("eps", "total_episodes", "eps_count"):
+        count = _positive_int(item.get(key))
+        if count is not None:
+            return count
+    infobox_count = _infobox_episode_count(item)
+    if infobox_count is not None:
+        return infobox_count
+
+    chapters = item.get("episodes")
+    if chapters is None:
+        chapters = item.get("chapters")
+    if isinstance(chapters, dict):
+        chapters = chapters.get("data")
+    if not isinstance(chapters, list) or not chapters:
+        return None
+
+    episode_numbers: set[int] = set()
+    for chapter in chapters:
+        if not isinstance(chapter, dict):
+            return None
+        special = _chapter_type(chapter)
+        if special is None:
+            return None
+        if special:
+            continue
+        number = _chapter_number(chapter)
+        if number is None:
+            return None
+        episode_numbers.add(number)
+    return len(episode_numbers) or None
+
+
 class BangumiAdapter(BaseMetadataAdapter):
     source = "bangumi"
     endpoint = "https://api.bgm.tv/v0/search/subjects"
@@ -80,7 +172,7 @@ class BangumiAdapter(BaseMetadataAdapter):
             summary=item.get("summary") or None,
             poster_url=(item.get("images") or {}).get("large") or (item.get("images") or {}).get("common"),
             air_date=air_date,
-            total_episodes=item.get("eps") or item.get("total_episodes"),
+            total_episodes=total_episodes_from_subject(item),
             episode_titles=self._episode_titles_from_raw(item),
             rating=rating,
             tags=tags,

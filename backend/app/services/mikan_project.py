@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.db import Store
+from app.metadata.bangumi import total_episodes_from_subject
 from app.models import (
     MikanProjectAnime,
     MikanProjectResourceGroup,
@@ -334,16 +335,61 @@ def _infobox_text(item: dict[str, Any], keys: set[str]) -> str | None:
     return str(value).strip() if value else None
 
 
-async def fetch_bangumi_subject(subject_id: str) -> dict[str, Any]:
+async def fetch_bangumi_subject(subject_id: str, *, timeout_seconds: float = 15) -> dict[str, Any]:
     headers = {
         "User-Agent": bangumi_user_agent(),
         "Accept": "application/json",
     }
-    async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=timeout_seconds, headers=headers) as client:
         response = await client.get(f"https://api.bgm.tv/v0/subjects/{subject_id}")
         response.raise_for_status()
     data = response.json()
     return data if isinstance(data, dict) else {}
+
+
+async def fetch_bangumi_episodes(subject_id: str, *, timeout_seconds: float = 15) -> list[dict[str, Any]]:
+    headers = {
+        "User-Agent": bangumi_user_agent(),
+        "Accept": "application/json",
+    }
+    limit = 100
+    offset = 0
+    episodes: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=timeout_seconds, headers=headers) as client:
+        for _ in range(50):
+            response = await client.get(
+                "https://api.bgm.tv/v0/episodes",
+                params={"subject_id": subject_id, "limit": limit, "offset": offset},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            page = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(page, list):
+                raise ValueError("Bangumi 章节列表结构无效")
+            episodes.extend(item for item in page if isinstance(item, dict))
+            total = payload.get("total") if isinstance(payload, dict) else None
+            if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
+                if len(episodes) >= total:
+                    return episodes
+                if not page:
+                    raise ValueError("Bangumi 章节列表分页不完整")
+            elif len(page) < limit:
+                return episodes
+            offset += len(page)
+    raise ValueError("Bangumi 章节列表超过安全分页上限")
+
+
+async def fetch_bangumi_subject_with_episodes(subject_id: str, *, timeout_seconds: float = 15) -> dict[str, Any]:
+    """Fetch a subject and use structured chapters only when 话数 is absent."""
+    subject = await fetch_bangumi_subject(subject_id, timeout_seconds=timeout_seconds)
+    if total_episodes_from_subject(subject) is not None:
+        return subject
+    with suppress(Exception):
+        return {
+            **subject,
+            "episodes": await fetch_bangumi_episodes(subject_id, timeout_seconds=timeout_seconds),
+        }
+    return subject
 
 
 def parse_mikan_detail(html_text: str) -> dict[str, Any]:
@@ -396,7 +442,7 @@ def merge_bangumi_subject_details(updates: dict[str, Any], item: dict[str, Any])
         merged["original_title"] = str(item["name"])
     if item.get("date") and not merged.get("air_date"):
         merged["air_date"] = str(item["date"])
-    total_episodes = _plain_int(item.get("total_episodes")) or _plain_int(item.get("eps")) or _plain_int(_infobox_text(item, {"话数"}))
+    total_episodes = total_episodes_from_subject(item)
     if total_episodes and not merged.get("total_episodes"):
         merged["total_episodes"] = total_episodes
     if not merged.get("broadcast_start"):
@@ -426,7 +472,8 @@ async def fetch_mikan_project_anime_detail(
     updates = parse_mikan_detail(detail_html if detail_html is not None else await fetch_mikan_detail(detail_url))
     subject_id = updates.get("bangumi_subject_id") or anime.bangumi_subject_id
     if subject_id:
-        updates = merge_bangumi_subject_details(updates, await fetch_bangumi_subject(str(subject_id)))
+        subject = await fetch_bangumi_subject_with_episodes(str(subject_id))
+        updates = merge_bangumi_subject_details(updates, subject)
     if updates.get("poster_original_url") and not updates.get("poster_url"):
         updates["poster_url"] = anime.poster_url
         updates["poster_local_url"] = anime.poster_local_url

@@ -4,8 +4,8 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="Kisetsu"
 BUNDLE_ID="com.kisetsu.app"
-APP_VERSION="0.1.3"
-BUILD_NUMBER="4"
+APP_VERSION="0.1.4"
+BUILD_NUMBER="5"
 MIN_SYSTEM_VERSION="15.0"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,7 +38,7 @@ APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 PKG_INFO="$APP_CONTENTS/PkgInfo"
 
-if [[ "$MODE" != "--fixture" ]]; then
+if [[ "$MODE" != "--fixture" && "$MODE" != "--build-only" ]]; then
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 fi
 
@@ -118,6 +118,8 @@ open_app() {
 }
 
 case "$MODE" in
+  --build-only)
+    ;;
   run|--fixture)
     open_app
     ;;
@@ -138,7 +140,7 @@ case "$MODE" in
     pgrep -x "$APP_NAME" >/dev/null
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--fixture]" >&2
+    echo "usage: $0 [run|--build-only|--debug|--logs|--telemetry|--verify|--fixture]" >&2
     exit 2
     ;;
 esac

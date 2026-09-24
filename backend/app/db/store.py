@@ -1639,10 +1639,19 @@ class Store:
                 return None
 
             subscription_data = self._normalize_subscription_data(json.loads(row["data"]))
-            subscription_data["metadata_episode_count"] = metadata_episode_count
-            if subscription_data.get("total_episodes_source") != "manual":
-                subscription_data["total_episodes"] = metadata_episode_count
-                subscription_data["total_episodes_source"] = metadata_source if metadata_episode_count else None
+            current_total = subscription_data.get("total_episodes")
+            valid_metadata_count = (
+                isinstance(metadata_episode_count, int)
+                and not isinstance(metadata_episode_count, bool)
+                and metadata_episode_count > 0
+            )
+            if valid_metadata_count and (
+                not isinstance(current_total, int) or metadata_episode_count >= current_total
+            ):
+                subscription_data["metadata_episode_count"] = metadata_episode_count
+                if not isinstance(current_total, int) or metadata_episode_count > current_total:
+                    subscription_data["total_episodes"] = metadata_episode_count
+                    subscription_data["total_episodes_source"] = metadata_source
 
             cur = conn.execute(
                 """
@@ -1718,6 +1727,7 @@ class Store:
             "poster_palette": data.get("poster_palette"),
             "air_date": data.get("air_date"),
             "total_episodes": data.get("total_episodes"),
+            "media_type": data.get("media_type"),
             "episode_titles": data.get("episode_titles") or {},
             "rating": data.get("rating"),
             "tags": data.get("tags") or [],

@@ -1313,6 +1313,7 @@ struct MobileSubscriptionEditorView: View {
           )
             .keyboardType(.numbersAndPunctuation)
           MobileFormValidationMessage(message: episodeOffsetValidationMessage)
+          Toggle("刷新时自动更新总集数", isOn: $store.subscriptionAutoUpdateTotalEpisodes)
         }
 
         Section("集数识别") {

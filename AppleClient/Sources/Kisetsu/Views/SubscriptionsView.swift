@@ -654,6 +654,7 @@ private struct SubscriptionForm: View {
           LabeledTextField(label: "指定集数", placeholder: "例如：1-6, 8, 10-12", text: $store.subscriptionEpisodeFilter, help: "为空表示订阅全部集数。指定集数会按集数偏移后的显示集数判断。")
           LabeledTextField(label: "起始集数", placeholder: "1", text: $store.subscriptionEpisodeStart, help: "通常从第 1 集开始。只有资源标题和实际集数不一致时才需要修改。")
           LabeledTextField(label: "集数偏移", placeholder: "例如：-12", text: $store.subscriptionEpisodeOffset, help: "当资源标题集数和显示/整理集数不一致时使用。例如资源第 13 集希望显示为 S02E01，则填写 -12。")
+          Toggle("刷新时自动更新总集数", isOn: $store.subscriptionAutoUpdateTotalEpisodes)
         }
       }
 

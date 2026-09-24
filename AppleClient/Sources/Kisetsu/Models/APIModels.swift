@@ -1070,6 +1070,7 @@ struct SubscriptionCreate: Codable {
   var savePath: String?
   var category: String?
   var tags: [String]
+  var autoUpdateTotalEpisodes: Bool? = true
 }
 
 struct Subscription: Codable, Identifiable, Hashable {
@@ -1141,6 +1142,7 @@ struct Subscription: Codable, Identifiable, Hashable {
   var posterPalette: PosterPalette?
   var coverage: SubscriptionCoverageSummary?
   var summary: String? = nil
+  var autoUpdateTotalEpisodes: Bool? = true
 }
 
 struct PosterPalette: Codable, Hashable {

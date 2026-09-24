@@ -9,6 +9,7 @@ NotificationEventType = Literal[
     "subscription_metadata_bound",
     "subscription_new_resource",
     "subscription_refresh_failed",
+    "subscription_total_episodes_updated",
     "download_started",
     "download_batch_summary",
     "download_completed",

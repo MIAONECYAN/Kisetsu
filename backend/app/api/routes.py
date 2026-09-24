@@ -178,6 +178,7 @@ from app.models import (
     TitleParseRequest,
     normalize_site_id,
 )
+from app.metadata.bangumi import total_episodes_from_subject
 from app.metadata.tmdb import TMDBAdapter
 from app.notifications import NotificationEvent, NotificationService, NotificationSettings, NotificationTestRequest, NotificationTestResponse, notification_settings_response
 from app.notifications.models import NotificationSettingsResponse
@@ -224,6 +225,7 @@ from app.services.managed_directories import (
 from app.services.mikan_project import (
     cache_mikan_project_poster,
     fetch_mikan_project_resources,
+    fetch_bangumi_subject_with_episodes,
     load_cached_mikan_project_season,
     mikan_project_cache_is_stale,
     mikan_project_poster_path,
@@ -9239,6 +9241,7 @@ async def _notify_and_refresh_subscription_after_metadata_bind(store: Store, sub
             store,
             subscription,
             qbittorrent_config=stored_qbittorrent_config(store),
+            notify_total_episodes=False,
         )
     except Exception as exc:
         message = describe_site_error(exc)
@@ -9318,6 +9321,12 @@ async def metadata_bind(request: MetadataBindRequest, store: Store = Depends(get
 
         staged_path = payload.get("local_poster_path") if not same_cached_poster else None
         metadata_episode_count = request.total_episodes if request.total_episodes and request.total_episodes > 0 else None
+        if metadata_episode_count is None and source == "bangumi" and request.bangumi_id:
+            with suppress(Exception):
+                subject = await fetch_bangumi_subject_with_episodes(request.bangumi_id)
+                metadata_episode_count = total_episodes_from_subject(subject)
+                if metadata_episode_count is not None:
+                    payload["total_episodes"] = metadata_episode_count
         try:
             binding_id = store.bind_subscription_metadata(
                 subscription_id,

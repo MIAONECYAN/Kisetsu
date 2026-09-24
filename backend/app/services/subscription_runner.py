@@ -5,10 +5,13 @@ import base64
 import binascii
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
 import re
 import sqlite3
 from pathlib import Path
 from pathlib import PurePosixPath
+
+import httpx
 
 from app.core.downloader import DownloaderAddResult, DownloaderClient, DownloaderError
 from app.core.downloaders import (
@@ -19,6 +22,8 @@ from app.core.downloaders import (
 )
 from app.core.qbittorrent import QbittorrentClient
 from app.db import Store
+from app.metadata.bangumi import total_episodes_from_subject
+from app.metadata.tmdb import TMDBAdapter
 from app.models import EpisodeParseRule, QbittorrentConfig, RefreshAllResponse, RefreshResponse, SearchDiagnostics, SearchResult, SiteSearchDiagnostics, Subscription, SubscriptionCreate, SubscriptionMatch
 from app.notifications.service import NotificationService
 from app.notifications.pending import history_size_target, send_or_defer_size_notification
@@ -29,6 +34,7 @@ from app.notifications.templates import (
     pending_failure_batch_event,
     subscription_new_resource_event,
     subscription_refresh_failed_event,
+    subscription_total_episodes_updated_event,
 )
 from app.services.downloads import confirmed_task_size_bytes, release_subscription_download_tag, resource_total_size_bytes, submit_result_to_downloader, subscription_download_tag
 from app.services.episode_fulfillment import (
@@ -44,6 +50,8 @@ from app.services.subscription import btih_hash_from_url, dedupe_results, finger
 from app.services.title_parser import parse_title
 from app.sites import describe_site_error, get_site_adapter, site_usage_restriction
 from app.sites.rate_limiter import drain_rate_limit_events
+from app.services.mikan_project import fetch_bangumi_episodes, fetch_bangumi_subject
+from app.settings import tmdb_api_key
 
 TASK_TEXT_RE = re.compile(r"[^0-9a-z\u4e00-\u9fff]+", re.IGNORECASE)
 TASK_TOKEN_RE = re.compile(r"[a-z0-9]+|[\u4e00-\u9fff]+", re.IGNORECASE)
@@ -52,6 +60,13 @@ PENDING_CONFIRMATIONS_KEY = "pending_download_confirmations"
 PENDING_CONFIRMATION_SECONDS = 90
 DEGRADED_RESPONSE_TYPES = {"timeout", "connect_error", "http_429", "http_5xx", "request_error"}
 _SUBSCRIPTION_REFRESH_LOCKS: dict[tuple[str, int], asyncio.Lock] = {}
+
+
+@dataclass(frozen=True)
+class TotalEpisodesUpdate:
+    old_total: int | None
+    new_total: int
+    source: str
 
 
 def _utc_now() -> datetime:
@@ -561,6 +576,200 @@ async def _fetch_subscription_results_with_settings_detailed(
     return response
 
 
+async def _fetch_mikan_total_episodes(
+    store: Store,
+    subscription: Subscription,
+    warnings: list[str],
+    diagnostics: SearchDiagnostics,
+    *,
+    timeout_seconds: float,
+) -> int | None:
+    if "mikan" not in subscription.sites:
+        return None
+    mikan_diagnostics = next((item for item in diagnostics.site_diagnostics if item.site == "mikan"), None)
+    if mikan_diagnostics and mikan_diagnostics.stop_reason in {"timeout", "site_rate_limited", "site_error"}:
+        warnings.append("mikan 总集数：本轮资源请求未完成，已保留现有总集数。")
+        return None
+    adapter = get_site_adapter("mikan", store.get_runtime_config("site_settings") or {})
+    bangumi_id_from_keyword = getattr(adapter, "bangumi_id_from_keyword", None)
+    total_episodes_from_html = getattr(adapter, "total_episodes_from_html", None)
+    if bangumi_id_from_keyword is None or total_episodes_from_html is None:
+        return None
+    bangumi_id = bangumi_id_from_keyword(subscription.mikan_bangumi_url or subscription.source_url or subscription.keyword)
+    if not bangumi_id:
+        return None
+    drain_rate_limit_events("mikan")
+    try:
+        html = await asyncio.wait_for(
+            adapter.fetch_text(f"{adapter.base_url}/Home/Bangumi/{bangumi_id}"),
+            timeout=max(1.0, float(timeout_seconds)),
+        )
+        return total_episodes_from_html(html)
+    except asyncio.TimeoutError:
+        warnings.append("mikan 总集数：请求超时，已保留现有总集数。")
+        return None
+    except Exception as exc:
+        warnings.append(f"mikan 总集数：{describe_site_error(exc)}")
+        return None
+    finally:
+        _append_rate_limit_events(diagnostics, "mikan")
+
+
+async def _fetch_bangumi_total_episodes(
+    subject_id: str,
+    warnings: list[str],
+    *,
+    timeout_seconds: float,
+) -> int | None:
+    try:
+        subject = await fetch_bangumi_subject(subject_id, timeout_seconds=timeout_seconds)
+        total = total_episodes_from_subject(subject)
+        if total is not None:
+            return total
+        chapters = await fetch_bangumi_episodes(subject_id, timeout_seconds=timeout_seconds)
+        return total_episodes_from_subject({**subject, "episodes": chapters})
+    except asyncio.TimeoutError:
+        warnings.append("Bangumi 总集数：请求超时，已保留现有总集数。")
+    except Exception as exc:
+        warnings.append(f"Bangumi 总集数：{describe_site_error(exc)}")
+    return None
+
+
+async def _fetch_tmdb_total_episodes(
+    tmdb_id: str,
+    media_type: str | None,
+    warnings: list[str],
+    *,
+    timeout_seconds: float,
+) -> int | None:
+    if media_type == "movie":
+        return None
+    api_key = tmdb_api_key()
+    if not api_key:
+        warnings.append("TMDB 总集数：API Key 未配置，已保留现有总集数。")
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            details = await TMDBAdapter().fetch_details(
+                client,
+                [{"id": tmdb_id}],
+                api_key,
+                "tv",
+            )
+        item = details.get(str(tmdb_id)) or {}
+        value = item.get("number_of_episodes")
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int) and value > 0:
+            return value
+        return None
+    except asyncio.TimeoutError:
+        warnings.append("TMDB 总集数：请求超时，已保留现有总集数。")
+    except Exception as exc:
+        warnings.append(f"TMDB 总集数：{describe_site_error(exc)}")
+    return None
+
+
+async def _latest_subscription_total_episodes(
+    store: Store,
+    subscription: Subscription,
+    warnings: list[str],
+    diagnostics: SearchDiagnostics,
+    *,
+    timeout_seconds: float,
+) -> tuple[int, str] | None:
+    bindings = store.list_metadata_bindings_for_target("subscription", str(subscription.id), limit=1)
+    if bindings:
+        binding = bindings[0]
+        bangumi_id = binding.get("bangumi_id")
+        if bangumi_id:
+            total = await _fetch_bangumi_total_episodes(
+                str(bangumi_id),
+                warnings,
+                timeout_seconds=timeout_seconds,
+            )
+            if total is not None:
+                return total, "bangumi"
+        tmdb_id = binding.get("tmdb_id")
+        if tmdb_id:
+            total = await _fetch_tmdb_total_episodes(
+                str(tmdb_id),
+                binding.get("media_type"),
+                warnings,
+                timeout_seconds=timeout_seconds,
+            )
+            if total is not None:
+                return total, "tmdb"
+    mikan_total = await _fetch_mikan_total_episodes(
+        store,
+        subscription,
+        warnings,
+        diagnostics,
+        timeout_seconds=timeout_seconds,
+    )
+    if isinstance(mikan_total, int) and mikan_total > 0:
+        return mikan_total, "mikan"
+    return None
+
+
+async def _sync_total_episodes(
+    store: Store,
+    subscription: Subscription,
+    warnings: list[str],
+    diagnostics: SearchDiagnostics,
+    *,
+    timeout_seconds: float = 15,
+) -> tuple[Subscription, TotalEpisodesUpdate | None]:
+    initial_data = store.get_subscription(subscription.id)
+    if initial_data is None:
+        return subscription, None
+    subscription = Subscription(**initial_data)
+    if not subscription.auto_update_total_episodes:
+        return subscription, None
+    latest = await _latest_subscription_total_episodes(
+        store,
+        subscription,
+        warnings,
+        diagnostics,
+        timeout_seconds=timeout_seconds,
+    )
+    if latest is None:
+        return subscription, None
+
+    latest_total, source = latest
+    data = store.get_subscription(subscription.id)
+    if data is None:
+        return subscription, None
+    if not Subscription(**data).auto_update_total_episodes:
+        return Subscription(**data), None
+    old_total = data.get("total_episodes")
+    old_total = old_total if isinstance(old_total, int) and not isinstance(old_total, bool) and old_total > 0 else None
+    increased = old_total is None or latest_total > old_total
+    if old_total is not None and not increased:
+        return Subscription(**data), None
+
+    data["metadata_episode_count"] = latest_total
+    if increased:
+        data["total_episodes"] = latest_total
+        data["total_episodes_source"] = source
+    try:
+        payload = SubscriptionCreate(**data).model_dump(mode="json")
+        updated = store.update_subscription(subscription.id, payload)
+    except Exception:
+        warnings.append(f"{source} 总集数：保存失败，已保留现有总集数。")
+        return subscription, None
+    if updated is None:
+        warnings.append(f"{source} 总集数：订阅已不存在，未更新。")
+        return subscription, None
+    authoritative = store.get_subscription(subscription.id)
+    if authoritative is None or (increased and authoritative.get("total_episodes") != latest_total):
+        warnings.append(f"{source} 总集数：保存后读取结果不一致，已保留当前状态。")
+        return subscription, None
+    updated_subscription = Subscription(**authoritative)
+    change = TotalEpisodesUpdate(old_total=old_total, new_total=latest_total, source=source) if increased and old_total is not None else None
+    return updated_subscription, change
+
+
 async def _sync_mikan_total_episodes(
     store: Store,
     subscription: Subscription,
@@ -569,47 +778,14 @@ async def _sync_mikan_total_episodes(
     *,
     timeout_seconds: float = 15,
 ) -> None:
-    if "mikan" not in subscription.sites:
-        return
-    mikan_diagnostics = next((item for item in diagnostics.site_diagnostics if item.site == "mikan"), None)
-    if mikan_diagnostics and mikan_diagnostics.stop_reason in {"timeout", "site_rate_limited", "site_error"}:
-        warnings.append("mikan 总集数：本轮资源请求未完成，已保留现有总集数。")
-        return
-    adapter = get_site_adapter("mikan", store.get_runtime_config("site_settings") or {})
-    bangumi_id_from_keyword = getattr(adapter, "bangumi_id_from_keyword", None)
-    total_episodes_from_html = getattr(adapter, "total_episodes_from_html", None)
-    if bangumi_id_from_keyword is None or total_episodes_from_html is None:
-        return
-    bangumi_id = bangumi_id_from_keyword(subscription.mikan_bangumi_url or subscription.source_url or subscription.keyword)
-    if not bangumi_id:
-        return
-    drain_rate_limit_events("mikan")
-    try:
-        html = await asyncio.wait_for(
-            adapter.fetch_text(f"{adapter.base_url}/Home/Bangumi/{bangumi_id}"),
-            timeout=max(1.0, float(timeout_seconds)),
-        )
-        total_episodes = total_episodes_from_html(html)
-    except asyncio.TimeoutError:
-        warnings.append("mikan 总集数：请求超时，已保留现有总集数。")
-        return
-    except Exception as exc:
-        warnings.append(f"mikan 总集数：{describe_site_error(exc)}")
-        return
-    finally:
-        _append_rate_limit_events(diagnostics, "mikan")
-    if not total_episodes:
-        return
-
-    data = store.get_subscription(subscription.id)
-    if data is None:
-        return
-    data["metadata_episode_count"] = total_episodes
-    if data.get("total_episodes") is None or data.get("total_episodes_source") != "manual":
-        data["total_episodes"] = total_episodes
-        data["total_episodes_source"] = "mikan"
-    payload = SubscriptionCreate(**data).model_dump(mode="json")
-    store.update_subscription(subscription.id, payload)
+    """Compatibility wrapper retained for existing callers and focused tests."""
+    await _sync_total_episodes(
+        store,
+        subscription,
+        warnings,
+        diagnostics,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 def _subscription_refresh_lock(store: Store, subscription_id: int) -> asyncio.Lock:
@@ -675,6 +851,7 @@ async def refresh_subscription(
     *,
     qbittorrent_config: QbittorrentConfig | None = None,
     auto_download_enabled: bool = True,
+    notify_total_episodes: bool = True,
 ) -> RefreshResponse:
     async with _subscription_refresh_lock(store, subscription.id):
         return await _refresh_subscription_once(
@@ -682,6 +859,7 @@ async def refresh_subscription(
             subscription,
             qbittorrent_config=qbittorrent_config,
             auto_download_enabled=auto_download_enabled,
+            notify_total_episodes=notify_total_episodes,
         )
 
 
@@ -691,6 +869,7 @@ async def _refresh_subscription_once(
     *,
     qbittorrent_config: QbittorrentConfig | None = None,
     auto_download_enabled: bool = True,
+    notify_total_episodes: bool = True,
 ) -> RefreshResponse:
     warnings: list[str] = []
     if not subscription.enabled:
@@ -716,13 +895,23 @@ async def _refresh_subscription_once(
         timeout_seconds=timeout_seconds,
     )
     warnings.extend(fetch_warnings)
-    await _sync_mikan_total_episodes(
+    subscription, total_episodes_update = await _sync_total_episodes(
         store,
         subscription,
         warnings,
         search_diagnostics,
         timeout_seconds=timeout_seconds,
     )
+    if notify_total_episodes and total_episodes_update is not None:
+        await NotificationService(store).send_best_effort(
+            subscription_total_episodes_updated_event(
+                store,
+                subscription,
+                total_episodes_update.old_total,
+                total_episodes_update.new_total,
+                event_key=f"subscription_total_episodes_updated:{subscription.id}:{subscription.updated_at.isoformat()}",
+            )
+        )
     effective_rules = _effective_episode_rules(store, subscription)
     matched, diagnostics = match_results_with_diagnostics(store, subscription, results, effective_rules)
     diagnostics.search_diagnostics = search_diagnostics
@@ -1110,6 +1299,7 @@ async def refresh_all_enabled(
                     subscription,
                     qbittorrent_config=qbittorrent_config,
                     auto_download_enabled=auto_download_enabled,
+                    notify_total_episodes=True,
                 )
             )
         except sqlite3.Error:

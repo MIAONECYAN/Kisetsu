@@ -329,6 +329,26 @@ def subscription_refresh_failed_event(store, subscription: Subscription, error_m
     )
 
 
+def subscription_total_episodes_updated_event(
+    store,
+    subscription: Subscription,
+    old_total: int,
+    new_total: int,
+    *,
+    event_key: str,
+) -> NotificationEvent:
+    return NotificationEvent(
+        event_key=event_key,
+        event_type="subscription_total_episodes_updated",
+        title="订阅总集数已更新",
+        body=f"《{subscription.name}》总集数已从 {old_total} 集更新为 {new_total} 集",
+        anime_title=subscription.name,
+        poster_url=poster_url_for_subscription(store, subscription.id),
+        subscription_id=subscription.id,
+        extra={"old_total_episodes": old_total, "new_total_episodes": new_total},
+    )
+
+
 def download_started_event(
     store,
     subscription: Subscription | None,
