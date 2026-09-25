@@ -229,6 +229,12 @@ final class AppStore: ObservableObject {
   @Published private(set) var isSmartSubscriptionExistingMatch = false
   @Published var subscriptions: [Subscription] = []
   @Published var subscriptionListFilter: SubscriptionListFilter = .all
+  @Published private(set) var subscriptionGroups: [SubscriptionGroup] = []
+  @Published var selectedSubscriptionGroupID: Int?
+  @Published var subscriptionGroupID: Int?
+  @Published private(set) var subscriptionGroupsLoading = false
+  @Published private(set) var subscriptionGroupSubmitting = false
+  @Published var subscriptionGroupError: String?
   @Published var refreshQueueStates: [Int: String] = [:]
   @Published var refreshQueueCurrentID: Int?
   @Published var refreshQueueProgressText = ""
@@ -390,6 +396,7 @@ final class AppStore: ObservableObject {
 
   private var operationSequence = LatestOperationSequence()
   private var subscriptionLoadSequence = LatestOperationSequence()
+  private var subscriptionGroupLoadSequence = LatestOperationSequence()
   private var overviewLoadSequence = LatestOperationSequence()
   private var metadataBindSequence = LatestOperationSequence()
   private var manualOrganizeSequence = LatestOperationSequence()
@@ -641,6 +648,13 @@ final class AppStore: ObservableObject {
       backendRevision &+= 1
       _ = subscriptionLoadSequence.begin()
       subscriptionListFilter = .all
+      selectedSubscriptionGroupID = nil
+      subscriptionGroupID = nil
+      subscriptionGroups = []
+      subscriptionGroupError = nil
+      subscriptionGroupsLoading = false
+      subscriptionGroupSubmitting = false
+      _ = subscriptionGroupLoadSequence.begin()
       schedulerStatus = nil
       pendingMetadataRecognitionSubscriptionID = nil
       pendingMetadataRecognitionBackendURL = nil
@@ -658,6 +672,13 @@ final class AppStore: ObservableObject {
       backendRevision &+= 1
       _ = subscriptionLoadSequence.begin()
       subscriptionListFilter = .all
+      selectedSubscriptionGroupID = nil
+      subscriptionGroupID = nil
+      subscriptionGroups = []
+      subscriptionGroupError = nil
+      subscriptionGroupsLoading = false
+      subscriptionGroupSubmitting = false
+      _ = subscriptionGroupLoadSequence.begin()
       schedulerStatus = nil
       pendingMetadataRecognitionSubscriptionID = nil
       pendingMetadataRecognitionBackendURL = nil
@@ -2311,7 +2332,8 @@ final class AppStore: ObservableObject {
       savePath: subscriptionDownloaderSavePath,
       category: subscriptionDownloaderCategory,
       tags: subscriptionDownloaderTags,
-      autoUpdateTotalEpisodes: subscriptionAutoUpdateTotalEpisodes
+      autoUpdateTotalEpisodes: subscriptionAutoUpdateTotalEpisodes,
+      groupId: defaultSubscriptionGroup?.id
     )
     await run("创建订阅", successTitle: "订阅已创建", successDetail: { keyword }) {
       _ = try await client.createSubscription(subscription)
@@ -2448,6 +2470,7 @@ final class AppStore: ObservableObject {
     subscriptionTotalEpisodesBaseline = suggestion.totalEpisodes
     subscriptionMetadataEpisodeCount = suggestion.metadataEpisodeCount
     subscriptionAutoUpdateTotalEpisodes = suggestion.autoUpdateTotalEpisodes ?? true
+    subscriptionGroupID = defaultSubscriptionGroup?.id
     subscriptionSavePath = suggestion.savePath ?? ""
     subscriptionCategory = suggestion.category ?? ""
     subscriptionTags = suggestion.tags.joined(separator: ", ")
@@ -2822,6 +2845,7 @@ final class AppStore: ObservableObject {
     subscriptionTotalEpisodesBaseline = subscription.totalEpisodes
     subscriptionMetadataEpisodeCount = subscription.metadataEpisodeCount
     subscriptionAutoUpdateTotalEpisodes = subscription.autoUpdateTotalEpisodes ?? true
+    subscriptionGroupID = subscription.groupId ?? 1
     subscriptionSavePath = subscription.savePath ?? ""
     subscriptionCategory = subscription.category ?? ""
     subscriptionTags = subscription.tags.joined(separator: ", ")
@@ -3117,6 +3141,98 @@ final class AppStore: ObservableObject {
       refreshQueueCurrentID = nil
       refreshQueueProgressText = ""
       refreshQueueRunning = false
+    }
+  }
+
+  var defaultSubscriptionGroup: SubscriptionGroup? {
+    subscriptionGroups.first(where: \.isDefault)
+  }
+
+  func loadSubscriptionGroups() async {
+    let requestID = subscriptionGroupLoadSequence.begin()
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestClient = client
+    subscriptionGroupsLoading = true
+    defer {
+      if backendURL == endpoint, backendRevision == revision, subscriptionGroupLoadSequence.accepts(requestID) {
+        subscriptionGroupsLoading = false
+      }
+    }
+    do {
+      let groups = try await requestClient.subscriptionGroups()
+      guard backendURL == endpoint, backendRevision == revision, subscriptionGroupLoadSequence.accepts(requestID) else { return }
+      subscriptionGroups = groups
+      if editingSubscriptionID == nil, subscriptionGroupID == nil {
+        subscriptionGroupID = groups.first(where: \.isDefault)?.id
+      }
+      if let selectedSubscriptionGroupID,
+         !groups.contains(where: { $0.id == selectedSubscriptionGroupID }) {
+        self.selectedSubscriptionGroupID = nil
+      }
+      subscriptionGroupError = nil
+    } catch {
+      guard backendURL == endpoint, backendRevision == revision, subscriptionGroupLoadSequence.accepts(requestID) else { return }
+      subscriptionGroupError = "读取分组失败：\(error.localizedDescription)"
+    }
+  }
+
+  func createSubscriptionGroup(name: String) async {
+    await changeSubscriptionGroup(.create(name))
+  }
+
+  func renameSubscriptionGroup(id: Int, name: String) async {
+    await changeSubscriptionGroup(.rename(id, name))
+  }
+
+  func setDefaultSubscriptionGroup(id: Int) async {
+    await changeSubscriptionGroup(.setDefault(id))
+  }
+
+  func deleteSubscriptionGroup(id: Int, confirmMigration: Bool, expectedMemberCount: Int) async {
+    await changeSubscriptionGroup(.delete(id, confirmMigration, expectedMemberCount))
+  }
+
+  private enum SubscriptionGroupChange {
+    case create(String)
+    case rename(Int, String)
+    case setDefault(Int)
+    case delete(Int, Bool, Int)
+  }
+
+  private func changeSubscriptionGroup(_ change: SubscriptionGroupChange) async {
+    guard !subscriptionGroupSubmitting else { return }
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestClient = client
+    subscriptionGroupSubmitting = true
+    subscriptionGroupError = nil
+    defer {
+      if backendURL == endpoint, backendRevision == revision {
+        subscriptionGroupSubmitting = false
+      }
+    }
+    do {
+      switch change {
+      case .create(let name):
+        _ = try await requestClient.createSubscriptionGroup(name: name)
+      case .rename(let id, let name):
+        _ = try await requestClient.renameSubscriptionGroup(id: id, name: name)
+      case .setDefault(let id):
+        _ = try await requestClient.setDefaultSubscriptionGroup(id: id)
+      case .delete(let id, let confirmMigration, let expectedMemberCount):
+        _ = try await requestClient.deleteSubscriptionGroup(
+          id: id, confirmMigration: confirmMigration, expectedMemberCount: expectedMemberCount
+        )
+      }
+      guard backendURL == endpoint, backendRevision == revision else { return }
+      await loadSubscriptionGroups()
+      if case .delete = change {
+        await loadSubscriptions(silent: true)
+      }
+    } catch {
+      guard backendURL == endpoint, backendRevision == revision else { return }
+      subscriptionGroupError = error.localizedDescription
     }
   }
 
@@ -5120,7 +5236,8 @@ final class AppStore: ObservableObject {
       savePath: nilIfEmpty(subscriptionSavePath) ?? subscriptionDownloaderSavePath,
       category: nilIfEmpty(subscriptionCategory) ?? subscriptionDownloaderCategory,
       tags: tags.isEmpty ? subscriptionDownloaderTags : tags,
-      autoUpdateTotalEpisodes: subscriptionAutoUpdateTotalEpisodes
+      autoUpdateTotalEpisodes: subscriptionAutoUpdateTotalEpisodes,
+      groupId: subscriptionGroupID
     )
   }
 
@@ -5213,7 +5330,8 @@ final class AppStore: ObservableObject {
       savePath: subscription.savePath,
       category: subscription.category,
       tags: subscription.tags,
-      autoUpdateTotalEpisodes: subscription.autoUpdateTotalEpisodes ?? true
+      autoUpdateTotalEpisodes: subscription.autoUpdateTotalEpisodes ?? true,
+      groupId: subscription.groupId ?? 1
     )
   }
 
@@ -5254,6 +5372,7 @@ final class AppStore: ObservableObject {
     subscriptionTotalEpisodesBaseline = nil
     subscriptionMetadataEpisodeCount = nil
     subscriptionAutoUpdateTotalEpisodes = true
+    subscriptionGroupID = defaultSubscriptionGroup?.id
     subscriptionSavePath = ""
     subscriptionCategory = ""
     subscriptionTags = ""

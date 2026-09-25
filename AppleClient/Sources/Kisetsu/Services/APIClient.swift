@@ -807,6 +807,30 @@ struct APIClient {
     try await request("api/subscriptions")
   }
 
+  func subscriptionGroups() async throws -> [SubscriptionGroup] {
+    try await request("api/subscription-groups")
+  }
+
+  func createSubscriptionGroup(name: String) async throws -> SubscriptionGroup {
+    try await request("api/subscription-groups", method: "POST", body: SubscriptionGroupNameRequest(name: name))
+  }
+
+  func renameSubscriptionGroup(id: Int, name: String) async throws -> SubscriptionGroup {
+    try await request("api/subscription-groups/\(id)", method: "PUT", body: SubscriptionGroupNameRequest(name: name))
+  }
+
+  func setDefaultSubscriptionGroup(id: Int) async throws -> SubscriptionGroup {
+    try await request("api/subscription-groups/\(id)/default", method: "PUT")
+  }
+
+  func deleteSubscriptionGroup(id: Int, confirmMigration: Bool, expectedMemberCount: Int) async throws -> SubscriptionGroupDeleteResponse {
+    try await request(
+      "api/subscription-groups/\(id)/delete",
+      method: "POST",
+      body: SubscriptionGroupDeleteRequest(confirmMigration: confirmMigration, expectedMemberCount: expectedMemberCount)
+    )
+  }
+
   func subscriptionDetail(id: Int) async throws -> SubscriptionDetail {
     try await request("api/subscriptions/\(id)")
   }

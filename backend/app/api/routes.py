@@ -158,6 +158,9 @@ from app.models import (
     SmartSubscriptionPrefillResponse,
     Subscription,
     SubscriptionCreate,
+    SubscriptionGroup,
+    SubscriptionGroupName,
+    SubscriptionGroupDeleteRequest,
     SubscriptionDetail,
     SubscriptionCoverageSummary,
     SubscriptionDownloadRequest,
@@ -2800,6 +2803,59 @@ def _poster_fields_from_metadata_rows(rows: list[dict], subscription_id: int) ->
 async def list_subscriptions(store: Store = Depends(get_store)) -> list[SubscriptionListItem]:
     organized_times = store.latest_successful_organize_times()
     return [_subscription_list_item(item, store, organized_times) for item in store.list_subscriptions()]
+
+
+@router.get("/subscription-groups", response_model=list[SubscriptionGroup])
+async def list_subscription_groups(store: Store = Depends(get_store)) -> list[SubscriptionGroup]:
+    return [SubscriptionGroup(**group) for group in store.list_subscription_groups()]
+
+
+@router.post("/subscription-groups", response_model=SubscriptionGroup)
+async def create_subscription_group(
+    request: SubscriptionGroupName, store: Store = Depends(get_store)
+) -> SubscriptionGroup:
+    try:
+        return SubscriptionGroup(**store.create_subscription_group(request.name))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.put("/subscription-groups/{group_id}", response_model=SubscriptionGroup)
+async def rename_subscription_group(
+    group_id: int, request: SubscriptionGroupName, store: Store = Depends(get_store)
+) -> SubscriptionGroup:
+    try:
+        group = store.rename_subscription_group(group_id, request.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if group is None:
+        raise HTTPException(status_code=404, detail="分组不存在")
+    return SubscriptionGroup(**group)
+
+
+@router.put("/subscription-groups/{group_id}/default", response_model=SubscriptionGroup)
+async def set_default_subscription_group(group_id: int, store: Store = Depends(get_store)) -> SubscriptionGroup:
+    group = store.set_default_subscription_group(group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail="分组不存在")
+    return SubscriptionGroup(**group)
+
+
+@router.post("/subscription-groups/{group_id}/delete")
+async def delete_subscription_group(
+    group_id: int, request: SubscriptionGroupDeleteRequest, store: Store = Depends(get_store)
+) -> dict[str, int | bool]:
+    try:
+        moved = store.delete_subscription_group(
+            group_id,
+            confirm_migration=request.confirm_migration,
+            expected_member_count=request.expected_member_count,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if moved is None:
+        raise HTTPException(status_code=404, detail="分组不存在")
+    return {"ok": True, "migrated_count": moved}
 
 
 def _overview_item(
@@ -5756,7 +5812,10 @@ async def create_subscription(request: SubscriptionCreate, store: Store = Depend
     _reject_new_brush_only_subscription_sites(request, store)
     request = _with_default_organize_target(request, store)
     _reject_duplicate_subscription(request, store)
-    created = store.create_subscription(request.model_dump(mode="json"))
+    try:
+        created = store.create_subscription(request.model_dump(mode="json"))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Subscription(**created)
 
 
@@ -6132,7 +6191,10 @@ async def update_subscription(
         request = SubscriptionCreate(**payload)
     request = _with_default_organize_target(request, store)
     _reject_duplicate_subscription(request, store, exclude_subscription_id=subscription_id)
-    updated = store.update_subscription(subscription_id, request.model_dump(mode="json"))
+    try:
+        updated = store.update_subscription(subscription_id, request.model_dump(mode="json"))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not updated:
         raise HTTPException(status_code=404, detail="订阅不存在")
     return Subscription(**updated)

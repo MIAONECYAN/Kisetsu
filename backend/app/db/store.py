@@ -75,6 +75,15 @@ class Store:
                   updated_at TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS subscription_groups (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  name TEXT NOT NULL,
+                  name_key TEXT NOT NULL UNIQUE,
+                  is_default INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT
+                );
+
                 CREATE TABLE IF NOT EXISTS download_history (
                   id INTEGER PRIMARY KEY AUTOINCREMENT,
                   fingerprint TEXT NOT NULL UNIQUE,
@@ -232,6 +241,15 @@ class Store:
             self._ensure_column(conn, "organize_history", "season_source", "TEXT")
             self._ensure_column(conn, "organize_history", "manual_override", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "organize_history", "override_reason", "TEXT")
+            if conn.execute("SELECT COUNT(*) FROM subscription_groups").fetchone()[0] == 0:
+                conn.execute(
+                    "INSERT INTO subscription_groups(id, name, name_key, is_default, created_at) VALUES (1, ?, ?, 1, ?)",
+                    ("默认分组", "默认分组".casefold(), utc_now_iso()),
+                )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_groups_one_default "
+                "ON subscription_groups(is_default) WHERE is_default = 1"
+            )
             conn.execute(
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_events_sent_key
@@ -668,12 +686,120 @@ class Store:
         data["enabled"] = bool(data["enabled"])
         return data
 
+    @staticmethod
+    def _decode_subscription_group(row: sqlite3.Row) -> dict[str, Any]:
+        value = dict(row)
+        value.pop("name_key", None)
+        value["is_default"] = bool(value["is_default"])
+        return value
+
+    def list_subscription_groups(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute("SELECT * FROM subscription_groups ORDER BY id").fetchall()
+        return [self._decode_subscription_group(row) for row in rows]
+
+    def create_subscription_group(self, name: str) -> dict[str, Any]:
+        name = name.strip()
+        if not name or len(name) > 80:
+            raise ValueError("分组名称长度须为 1 至 80 个字符")
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("SELECT 1 FROM subscription_groups WHERE name_key = ?", (name.casefold(),)).fetchone():
+                raise ValueError("分组名称已存在")
+            now = utc_now_iso()
+            cursor = conn.execute(
+                "INSERT INTO subscription_groups(name, name_key, is_default, created_at) VALUES (?, ?, 0, ?)",
+                (name, name.casefold(), now),
+            )
+            row = conn.execute("SELECT * FROM subscription_groups WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return self._decode_subscription_group(row)
+
+    def rename_subscription_group(self, group_id: int, name: str) -> dict[str, Any] | None:
+        name = name.strip()
+        if not name or len(name) > 80:
+            raise ValueError("分组名称长度须为 1 至 80 个字符")
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if not conn.execute("SELECT 1 FROM subscription_groups WHERE id = ?", (group_id,)).fetchone():
+                return None
+            duplicate = conn.execute(
+                "SELECT id FROM subscription_groups WHERE name_key = ? AND id != ?",
+                (name.casefold(), group_id),
+            ).fetchone()
+            if duplicate:
+                raise ValueError("分组名称已存在")
+            conn.execute(
+                "UPDATE subscription_groups SET name = ?, name_key = ?, updated_at = ? WHERE id = ?",
+                (name, name.casefold(), utc_now_iso(), group_id),
+            )
+            row = conn.execute("SELECT * FROM subscription_groups WHERE id = ?", (group_id,)).fetchone()
+        return self._decode_subscription_group(row)
+
+    def set_default_subscription_group(self, group_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if not conn.execute("SELECT 1 FROM subscription_groups WHERE id = ?", (group_id,)).fetchone():
+                return None
+            conn.execute("UPDATE subscription_groups SET is_default = 0 WHERE is_default = 1")
+            conn.execute(
+                "UPDATE subscription_groups SET is_default = 1, updated_at = ? WHERE id = ?",
+                (utc_now_iso(), group_id),
+            )
+            row = conn.execute("SELECT * FROM subscription_groups WHERE id = ?", (group_id,)).fetchone()
+        return self._decode_subscription_group(row)
+
+    def delete_subscription_group(
+        self, group_id: int, *, confirm_migration: bool, expected_member_count: int | None = None
+    ) -> int | None:
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            group = conn.execute("SELECT * FROM subscription_groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                return None
+            if group["is_default"]:
+                raise ValueError("请先将其他分组设为默认分组")
+            default = conn.execute("SELECT id FROM subscription_groups WHERE is_default = 1").fetchone()
+            if default is None:
+                raise ValueError("默认分组不存在")
+            rows = conn.execute("SELECT id, data FROM subscriptions").fetchall()
+            affected = []
+            for row in rows:
+                data = json.loads(row["data"])
+                if data.get("group_id", 1) == group_id:
+                    affected.append((row["id"], data))
+            if expected_member_count is not None and len(affected) != expected_member_count:
+                raise ValueError("分组内订阅数量已变化，请刷新后重试")
+            if affected and not confirm_migration:
+                raise ValueError(f"该分组包含 {len(affected)} 条订阅，请确认迁移到当前默认分组")
+            for subscription_id, data in affected:
+                data["group_id"] = default["id"]
+                conn.execute(
+                    "UPDATE subscriptions SET data = ?, updated_at = ? WHERE id = ?",
+                    (json.dumps(data, ensure_ascii=False), utc_now_iso(), subscription_id),
+                )
+            conn.execute("DELETE FROM subscription_groups WHERE id = ?", (group_id,))
+        return len(affected)
+
+    @staticmethod
+    def _resolve_subscription_group_id(conn: sqlite3.Connection, group_id: int | None) -> int:
+        if group_id is None:
+            row = conn.execute("SELECT id FROM subscription_groups WHERE is_default = 1").fetchone()
+            if row is None:
+                raise ValueError("默认分组不存在")
+            return int(row["id"])
+        row = conn.execute("SELECT id FROM subscription_groups WHERE id = ?", (group_id,)).fetchone()
+        if row is None:
+            raise ValueError("所选分组不存在，请重新选择")
+        return int(row["id"])
+
     def create_subscription(self, data: dict[str, Any]) -> dict[str, Any]:
         now = utc_now_iso()
         payload = self._normalize_subscription_data(data)
-        public, secrets = split_subscription_payload(payload)
         enabled = 1 if payload.get("enabled", True) else 0
         with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            payload["group_id"] = self._resolve_subscription_group_id(conn, data.get("group_id"))
+            public, secrets = split_subscription_payload(payload)
             cur = conn.execute(
                 "INSERT INTO subscriptions(name, data, enabled, created_at) VALUES (?, ?, ?, ?)",
                 (payload["name"], json.dumps(public, ensure_ascii=False), enabled, now),
@@ -717,13 +843,17 @@ class Store:
             return None
         now = utc_now_iso()
         payload = self._normalize_subscription_data(data)
-        public, secrets = split_subscription_payload(payload)
         enabled = 1 if payload.get("enabled", True) else 0
         namespace = self._subscription_secret_namespace(subscription_id)
         previous = self.secrets.namespace(namespace)
-        self.secrets.replace_namespace(namespace, secrets)
         try:
             with self.connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                payload["group_id"] = self._resolve_subscription_group_id(
+                    conn, data.get("group_id") or existing.get("group_id")
+                )
+                public, secrets = split_subscription_payload(payload)
+                self.secrets.replace_namespace(namespace, secrets)
                 conn.execute(
                     """
                     UPDATE subscriptions
@@ -748,6 +878,7 @@ class Store:
 
     def _normalize_subscription_data(self, data: dict[str, Any]) -> dict[str, Any]:
         payload = dict(data)
+        payload["group_id"] = payload.get("group_id") or 1
         raw_episode_start = payload.get("episode_start")
         try:
             episode_start = int(raw_episode_start)

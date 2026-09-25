@@ -848,6 +848,7 @@ class EpisodeRuleSettingsUpdate(BaseModel):
 class SubscriptionCreate(BaseModel):
     name: str = Field(min_length=1)
     keyword: str = Field(min_length=1)
+    group_id: int | None = Field(default=None, ge=1)
     source_type: Literal["keyword", "mikan_bangumi", "rss"] = "keyword"
     identity_key: str | None = None
     sites: list[str] = Field(default_factory=lambda: ["dmhy", "mikan", "nyaa"])
@@ -999,6 +1000,23 @@ class Subscription(SubscriptionCreate):
     id: int
     created_at: datetime
     updated_at: datetime | None = None
+
+
+class SubscriptionGroup(BaseModel):
+    id: int
+    name: str
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class SubscriptionGroupName(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class SubscriptionGroupDeleteRequest(BaseModel):
+    confirm_migration: bool = False
+    expected_member_count: int | None = Field(default=None, ge=0)
 
 
 class SubscriptionSuggestionRequest(BaseModel):

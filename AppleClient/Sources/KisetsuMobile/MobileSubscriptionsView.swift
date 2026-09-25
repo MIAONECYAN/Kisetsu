@@ -6,12 +6,17 @@ struct MobileSubscriptionsView: View {
   @State private var query = ""
   @State private var showingEditor = false
   @State private var showingAutoRefresh = false
+  @State private var showingGroupSettings = false
   @State private var debugDetailSubscription: Subscription?
   @State private var isReadingSubscriptions = false
 
   private var visibleSubscriptions: [Subscription] {
-    let scoped = store.subscriptionListFilter.apply(to: store.subscriptions)
-    return SubscriptionSearch.filter(scoped, query: query)
+    SubscriptionGroupFilter.apply(
+      store.subscriptions,
+      selectedGroupID: store.selectedSubscriptionGroupID,
+      completion: store.subscriptionListFilter,
+      query: query
+    )
   }
 
   private var emptyTitle: String {
@@ -20,12 +25,15 @@ struct MobileSubscriptionsView: View {
         ? "没有匹配的订阅"
         : "当前范围内没有匹配的订阅"
     }
-    return store.subscriptionListFilter.emptyTitle
+    return store.selectedSubscriptionGroupID == nil
+      ? store.subscriptionListFilter.emptyTitle
+      : "当前分组没有匹配的订阅"
   }
 
   private var emptyDescription: String? {
-    guard store.subscriptionListFilter != .all else { return nil }
-    return "当前显示：\(store.subscriptionListFilter.title)"
+    guard store.subscriptionListFilter != .all || store.selectedSubscriptionGroupID != nil else { return nil }
+    let group = store.subscriptionGroups.first(where: { $0.id == store.selectedSubscriptionGroupID })?.name
+    return "当前显示：\([group, store.subscriptionListFilter == .all ? nil : store.subscriptionListFilter.title].compactMap { $0 }.joined(separator: " · "))"
   }
 
   var body: some View {
@@ -45,9 +53,10 @@ struct MobileSubscriptionsView: View {
             Text(emptyDescription)
           }
         } actions: {
-          if store.subscriptionListFilter != .all {
+          if store.subscriptionListFilter != .all || store.selectedSubscriptionGroupID != nil {
             Button("显示全部") {
               store.subscriptionListFilter = .all
+              store.selectedSubscriptionGroupID = nil
             }
           }
         }
@@ -102,7 +111,24 @@ struct MobileSubscriptionsView: View {
             }
             .accessibilityValue(store.subscriptionListFilter == .completed ? "已开启" : "已关闭")
           }
+          Section("分组筛选") {
+            Button {
+              store.selectedSubscriptionGroupID = nil
+            } label: {
+              Label("全部分组", systemImage: store.selectedSubscriptionGroupID == nil ? "checkmark.circle.fill" : "circle")
+            }
+            ForEach(store.subscriptionGroups) { group in
+              Button {
+                store.selectedSubscriptionGroupID = group.id
+              } label: {
+                Label(group.name, systemImage: store.selectedSubscriptionGroupID == group.id ? "checkmark.circle.fill" : "circle")
+              }
+            }
+          }
           Section {
+            Button("分组设置", systemImage: "folder.badge.gearshape") {
+              showingGroupSettings = true
+            }
             Button("自动刷新", systemImage: "clock.arrow.circlepath") {
               showingAutoRefresh = true
             }
@@ -123,6 +149,11 @@ struct MobileSubscriptionsView: View {
     .sheet(isPresented: $showingAutoRefresh) {
       MobileAutoRefreshSheet(client: store.client)
         .id(store.backendURL)
+    }
+    .sheet(isPresented: $showingGroupSettings) {
+      MobileSubscriptionGroupSettingsView()
+        .environmentObject(store)
+        .presentationDetents([.medium, .large])
     }
     .navigationDestination(item: $debugDetailSubscription) { subscription in
       MobileSubscriptionDetailView(subscription: subscription)
@@ -146,6 +177,9 @@ struct MobileSubscriptionsView: View {
       }
       #endif
       guard isActive else { return }
+      if !MobileDebugConfiguration.usesFixturesAtRuntime {
+        await store.loadSubscriptionGroups()
+      }
       await readSubscriptions()
       guard !MobileDebugConfiguration.usesFixturesAtRuntime else { return }
       while !Task.isCancelled {
@@ -1149,6 +1183,16 @@ struct MobileSubscriptionEditorView: View {
             prompt: "例如：葬送的芙莉莲",
             text: $store.subscriptionName
           )
+          Picker("分组", selection: $store.subscriptionGroupID) {
+            if store.subscriptionGroups.isEmpty {
+              Text(store.subscriptionGroupID == nil ? "默认分组" : "当前分组")
+                .tag(store.subscriptionGroupID)
+            }
+            ForEach(store.subscriptionGroups) { group in
+              Text(group.name).tag(Optional(group.id))
+            }
+          }
+          .disabled(store.subscriptionGroups.isEmpty)
           Picker("订阅来源", selection: $store.subscriptionSourceType) {
             Text("关键词搜索").tag("keyword")
             Text("Mikan 番组").tag("mikan_bangumi")
@@ -1550,6 +1594,7 @@ struct MobileSubscriptionEditorView: View {
     }
     .interactiveDismissDisabled(isSaving)
     .task {
+      if store.subscriptionGroups.isEmpty { await store.loadSubscriptionGroups() }
       guard !MobileDebugConfiguration.usesFixturesAtRuntime else { return }
       if !store.sitesLoaded { await store.loadSites() }
       if store.organizeTargets.isEmpty { await store.loadOrganizeTargets() }
@@ -1814,5 +1859,118 @@ private struct MobileSubscriptionTextEditor: View {
           .foregroundStyle(.secondary)
       }
     }
+  }
+}
+
+private struct MobileSubscriptionGroupSettingsView: View {
+  @EnvironmentObject private var store: AppStore
+  @Environment(\.dismiss) private var dismiss
+  @State private var newName = ""
+  @State private var renameTarget: SubscriptionGroup?
+  @State private var renameDraft = ""
+  @State private var deleteTarget: SubscriptionGroup?
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        if let error = store.subscriptionGroupError {
+          Section {
+            Label(error, systemImage: "exclamationmark.triangle")
+              .foregroundStyle(.orange)
+            Button("重新读取") { Task { await store.loadSubscriptionGroups() } }
+          }
+        }
+        Section("新建分组") {
+          TextField("分组名称", text: $newName)
+          Button("添加分组", systemImage: "plus") {
+            let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+            Task {
+              await store.createSubscriptionGroup(name: name)
+              if store.subscriptionGroupError == nil { newName = "" }
+            }
+          }
+          .disabled(store.subscriptionGroupSubmitting || newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        Section("分组") {
+          if store.subscriptionGroupsLoading && store.subscriptionGroups.isEmpty {
+            ProgressView("正在读取分组")
+          }
+          ForEach(store.subscriptionGroups) { group in
+            HStack {
+              Text(group.name)
+              Spacer()
+              if group.isDefault {
+                Text("默认").foregroundStyle(.secondary)
+              }
+              Menu("分组操作", systemImage: "ellipsis") {
+                if !group.isDefault {
+                  Button("设为默认", systemImage: "checkmark.circle") {
+                    Task { await store.setDefaultSubscriptionGroup(id: group.id) }
+                  }
+                }
+                Button("重命名", systemImage: "pencil") {
+                  renameDraft = group.name
+                  renameTarget = group
+                }
+                if !group.isDefault {
+                  Button("删除分组", systemImage: "trash", role: .destructive) {
+                    let count = memberCount(group.id)
+                    if count == 0 {
+                      Task { await store.deleteSubscriptionGroup(id: group.id, confirmMigration: false, expectedMemberCount: 0) }
+                    } else {
+                      deleteTarget = group
+                    }
+                  }
+                }
+              }
+              .labelStyle(.iconOnly)
+              .disabled(store.subscriptionGroupSubmitting)
+            }
+          }
+        }
+      }
+      .navigationTitle("分组设置")
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          Button("完成") { dismiss() }
+        }
+      }
+      .overlay(alignment: .top) {
+        if store.subscriptionGroupSubmitting { ProgressView().padding(8) }
+      }
+    }
+    .task { await store.loadSubscriptionGroups() }
+    .alert("重命名分组", isPresented: Binding(
+      get: { renameTarget != nil },
+      set: { if !$0 { renameTarget = nil } }
+    )) {
+      TextField("分组名称", text: $renameDraft)
+      Button("取消", role: .cancel) { renameTarget = nil }
+      Button("保存") {
+        guard let group = renameTarget else { return }
+        Task { await store.renameSubscriptionGroup(id: group.id, name: renameDraft) }
+        renameTarget = nil
+      }
+      .disabled(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+    .confirmationDialog(
+      "删除后将把该组的 \(deleteTarget.map { memberCount($0.id) } ?? 0) 条订阅移至当前默认分组。",
+      isPresented: Binding(
+        get: { deleteTarget != nil },
+        set: { if !$0 { deleteTarget = nil } }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("删除并迁移", role: .destructive) {
+        guard let group = deleteTarget else { return }
+        let count = memberCount(group.id)
+        Task { await store.deleteSubscriptionGroup(id: group.id, confirmMigration: true, expectedMemberCount: count) }
+        deleteTarget = nil
+      }
+    }
+  }
+
+  private func memberCount(_ id: Int) -> Int {
+    store.subscriptions.filter { ($0.groupId ?? 1) == id }.count
   }
 }

@@ -1071,6 +1071,7 @@ struct SubscriptionCreate: Codable {
   var category: String?
   var tags: [String]
   var autoUpdateTotalEpisodes: Bool? = true
+  var groupId: Int? = nil
 }
 
 struct Subscription: Codable, Identifiable, Hashable {
@@ -1143,6 +1144,41 @@ struct Subscription: Codable, Identifiable, Hashable {
   var coverage: SubscriptionCoverageSummary?
   var summary: String? = nil
   var autoUpdateTotalEpisodes: Bool? = true
+  var groupId: Int? = nil
+}
+
+struct SubscriptionGroup: Codable, Identifiable, Hashable {
+  var id: Int
+  var name: String
+  var isDefault: Bool
+  var createdAt: String
+  var updatedAt: String?
+}
+
+struct SubscriptionGroupNameRequest: Encodable {
+  var name: String
+}
+
+struct SubscriptionGroupDeleteRequest: Encodable {
+  var confirmMigration: Bool
+  var expectedMemberCount: Int
+}
+
+struct SubscriptionGroupDeleteResponse: Decodable {
+  var ok: Bool
+  var migratedCount: Int
+}
+
+enum SubscriptionGroupFilter {
+  static func apply(
+    _ subscriptions: [Subscription],
+    selectedGroupID: Int?,
+    completion: SubscriptionListFilter,
+    query: String
+  ) -> [Subscription] {
+    let grouped = subscriptions.filter { selectedGroupID == nil || ($0.groupId ?? 1) == selectedGroupID }
+    return SubscriptionSearch.filter(completion.apply(to: grouped), query: query)
+  }
 }
 
 struct PosterPalette: Codable, Hashable {
