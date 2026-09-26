@@ -11,11 +11,11 @@
 
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/icons/apple-dark.svg"><img src="docs/icons/apple.svg" width="16" height="16" alt=""></picture> macOS
-  &nbsp;&nbsp;·&nbsp;&nbsp;
+  &nbsp;·&nbsp;
   <img src="docs/icons/ios.svg" width="16" height="16" alt=""> iPhone
-  &nbsp;&nbsp;·&nbsp;&nbsp;
+  &nbsp;·&nbsp;
   <img src="docs/icons/fastapi.svg" width="16" height="16" alt=""> FastAPI
-  &nbsp;&nbsp;·&nbsp;&nbsp;
+  &nbsp;·&nbsp;
   <img src="docs/icons/plex.svg" width="16" height="16" alt=""> Plex
 </p>
 
