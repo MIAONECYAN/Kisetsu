@@ -1507,6 +1507,7 @@ struct OverviewResponse: Codable, Hashable {
   var downloadingItems: [OverviewItem]
   var pendingOrganizeItems: [OverviewItem]
   var issues: [OverviewItem]
+  var refreshAlerts: [OverviewItem] = []
   var recentCompleted: [OverviewItem]
   var subscriptionSummary: OverviewSubscriptionSummary
   var downloadingCount: Int?
@@ -1519,14 +1520,15 @@ struct OverviewResponse: Codable, Hashable {
   var subscriptionItems: [Subscription]? = nil
 
   enum CodingKeys: String, CodingKey {
-    case downloadingItems, pendingOrganizeItems, issues, recentCompleted, subscriptionSummary
+    case downloadingItems, pendingOrganizeItems, issues, refreshAlerts, recentCompleted, subscriptionSummary
     case downloadingCount, pendingOrganizeCount, issuesCount, recentCompletedCount, generatedAt, recentlyOrganized, runtimeItems, subscriptionItems
   }
 
-  init(downloadingItems: [OverviewItem], pendingOrganizeItems: [OverviewItem], issues: [OverviewItem], recentCompleted: [OverviewItem], subscriptionSummary: OverviewSubscriptionSummary, downloadingCount: Int? = nil, pendingOrganizeCount: Int? = nil, issuesCount: Int? = nil, recentCompletedCount: Int? = nil, generatedAt: String? = nil, recentlyOrganized: [OverviewOrganizedMedia] = []) {
+  init(downloadingItems: [OverviewItem], pendingOrganizeItems: [OverviewItem], issues: [OverviewItem], recentCompleted: [OverviewItem], subscriptionSummary: OverviewSubscriptionSummary, downloadingCount: Int? = nil, pendingOrganizeCount: Int? = nil, issuesCount: Int? = nil, recentCompletedCount: Int? = nil, generatedAt: String? = nil, recentlyOrganized: [OverviewOrganizedMedia] = [], refreshAlerts: [OverviewItem] = []) {
     self.downloadingItems = downloadingItems
     self.pendingOrganizeItems = pendingOrganizeItems
     self.issues = issues
+    self.refreshAlerts = refreshAlerts
     self.recentCompleted = recentCompleted
     self.subscriptionSummary = subscriptionSummary
     self.downloadingCount = downloadingCount
@@ -1542,6 +1544,7 @@ struct OverviewResponse: Codable, Hashable {
     downloadingItems = try c.decodeIfPresent([OverviewItem].self, forKey: .downloadingItems) ?? []
     pendingOrganizeItems = try c.decodeIfPresent([OverviewItem].self, forKey: .pendingOrganizeItems) ?? []
     issues = try c.decodeIfPresent([OverviewItem].self, forKey: .issues) ?? []
+    refreshAlerts = try c.decodeIfPresent([OverviewItem].self, forKey: .refreshAlerts) ?? []
     recentCompleted = try c.decodeIfPresent([OverviewItem].self, forKey: .recentCompleted) ?? []
     subscriptionSummary = try c.decodeIfPresent(OverviewSubscriptionSummary.self, forKey: .subscriptionSummary) ?? OverviewSubscriptionSummary(total: 0, enabled: 0, refreshing: 0, failed: 0, latestRefreshSummary: nil, latestError: nil)
     downloadingCount = try c.decodeIfPresent(Int.self, forKey: .downloadingCount)

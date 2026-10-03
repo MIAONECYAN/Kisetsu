@@ -26,10 +26,16 @@ struct MobileOverviewView: View {
           MobileOverviewHero(subscriptions: focus, isActive: isActive && detailSubscription == nil && playlists.detail == nil,
             selection: $heroSelection, onOpen: { detailSubscription = $0 })
         }
-        if let overview = store.overview, !overview.issues.isEmpty {
+        if let overview = store.overview, !OverviewPresentation.actionableIssues(overview).isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-              sectionHeader("需要处理", section: .history)
-              ForEach(overview.issues.prefix(2)) { item in taskLink(item) }
+              issueHeader(OverviewPresentation.actionableIssues(overview))
+              ForEach(OverviewPresentation.actionableIssues(overview).prefix(2)) { item in taskLink(item) }
+            }
+        }
+        if let overview = store.overview, !OverviewPresentation.subscriptionRefreshAlerts(overview).isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+              subscriptionRefreshHeader
+              ForEach(OverviewPresentation.subscriptionRefreshAlerts(overview).prefix(2)) { item in taskLink(item) }
             }
         }
         if !subscriptions.isEmpty { subscriptionRail }
@@ -119,22 +125,63 @@ struct MobileOverviewView: View {
     }
   }
 
-  private func taskLink(_ item: OverviewItem) -> some View {
-    NavigationLink {
-      if item.target.targetType == "subscription",
-         let id = item.target.subscriptionId,
-         let subscription = availableSubscriptions.first(where: { $0.id == id }) {
-        MobileSubscriptionDetailView(subscription: subscription)
-      } else {
-        MobileTasksView(isActive: true, initialSection: taskSection(item))
+  private var subscriptionRefreshHeader: some View {
+    HStack {
+      Text("订阅刷新提醒").font(.headline)
+      Spacer()
+      NavigationLink { MobileSubscriptionsView(isActive: true) } label: {
+        Image(systemName: "chevron.right").frame(width: 44, height: 44)
       }
-    } label: {
+      .accessibilityLabel("查看订阅刷新状态")
+      .foregroundStyle(.secondary)
+    }
+  }
+
+  private func issueHeader(_ items: [OverviewItem]) -> some View {
+    HStack {
+      Text("需要处理").font(.headline)
+      Spacer()
+      if items.allSatisfy({ $0.target.targetType == "download_history" }) {
+        NavigationLink { MobileTasksView(isActive: true, initialSection: .history) } label: {
+          Image(systemName: "chevron.right").frame(width: 44, height: 44)
+        }
+        .accessibilityLabel("查看下载问题")
+        .foregroundStyle(.secondary)
+      } else if items.allSatisfy({ $0.target.targetType == "organize_history" }) {
+        NavigationLink { MobileTasksView(isActive: true, initialSection: .organized) } label: {
+          Image(systemName: "chevron.right").frame(width: 44, height: 44)
+        }
+        .accessibilityLabel("查看整理问题")
+        .foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  @ViewBuilder private func taskLink(_ item: OverviewItem) -> some View {
+    if OverviewPresentation.hasDestination(item) {
+      NavigationLink {
+        if item.target.targetType == "subscription" {
+          if let id = item.target.subscriptionId,
+             let subscription = availableSubscriptions.first(where: { $0.id == id }) {
+            MobileSubscriptionDetailView(subscription: subscription)
+          } else {
+            MobileSubscriptionsView(isActive: true)
+          }
+        } else {
+          MobileTasksView(isActive: true, initialSection: taskSection(item))
+        }
+      } label: {
+        MobileOverviewItemRow(item: item)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.vertical, 5)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+    } else {
       MobileOverviewItemRow(item: item)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 5)
-        .contentShape(Rectangle())
     }
-    .buttonStyle(.plain)
   }
 
   private func taskSection(_ item: OverviewItem) -> MobileTaskSection {

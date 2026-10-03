@@ -58,3 +58,22 @@ enum SubscriptionSearch {
       .map(String.init)
   }
 }
+
+enum SearchQueryHistory {
+  static let limit = 10
+
+  static func storageKey(for backendURL: String) -> String {
+    "resourceSearchHistory.v1.\(backendURL)"
+  }
+
+  static func adding(_ query: String, to entries: [String]) -> [String] {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return entries }
+    let remaining = entries.filter { $0.compare(trimmed, options: [.caseInsensitive, .widthInsensitive]) != .orderedSame }
+    return Array(([trimmed] + remaining).prefix(limit))
+  }
+
+  static func removing(_ query: String, from entries: [String]) -> [String] {
+    entries.filter { $0 != query }
+  }
+}

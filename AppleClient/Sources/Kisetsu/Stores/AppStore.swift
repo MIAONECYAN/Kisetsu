@@ -202,6 +202,7 @@ final class AppStore: ObservableObject {
   @Published var organizeTargetEnabled = true
   @Published var lastOrganizeTargetValidation: OrganizeTargetValidateResponse?
   @Published var searchKeyword = ""
+  @Published private(set) var searchHistory: [String] = []
   @Published var searchResults: [SearchResult] = []
   @Published var visibleSearchResults: [SearchResult] = []
   @Published var searchFiltering = false
@@ -526,6 +527,7 @@ final class AppStore: ObservableObject {
     backendURL = normalizedBackendURL
     backendURLDraft = normalizedBackendURL
     backendUserDefaults.set(normalizedBackendURL, forKey: "backendURL")
+    searchHistory = backendUserDefaults.stringArray(forKey: SearchQueryHistory.storageKey(for: normalizedBackendURL)) ?? []
     #if os(macOS)
       let defaultLibraryRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Movies/Anime Library", isDirectory: true)
@@ -577,12 +579,14 @@ final class AppStore: ObservableObject {
 
   private var overviewSummaryText: String {
     guard let overview else { return "概览已更新" }
-    let issues = overview.issues.count
+    let issues = OverviewPresentation.actionableIssues(overview).count
     let pending = overview.pendingOrganizeItems.count
+    let refreshAlerts = OverviewPresentation.subscriptionRefreshAlerts(overview).count
     if issues == 0 && pending == 0 {
-      return "一切正常"
+      return refreshAlerts == 0 ? "一切正常" : "订阅刷新失败 \(refreshAlerts) 个"
     }
-    return "需要处理 \(issues) 个，待整理 \(pending) 个"
+    let summary = "需要处理 \(issues) 个，待整理 \(pending) 个"
+    return refreshAlerts == 0 ? summary : "\(summary)，订阅刷新失败 \(refreshAlerts) 个"
   }
 
   func bootstrap() async {
@@ -647,6 +651,7 @@ final class AppStore: ObservableObject {
     if normalizedURL != backendURL {
       backendRevision &+= 1
       _ = subscriptionLoadSequence.begin()
+      resetSubscriptionRefreshState()
       subscriptionListFilter = .all
       selectedSubscriptionGroupID = nil
       subscriptionGroupID = nil
@@ -660,6 +665,7 @@ final class AppStore: ObservableObject {
       pendingMetadataRecognitionBackendURL = nil
     }
     backendURL = normalizedURL
+    searchHistory = backendUserDefaults.stringArray(forKey: SearchQueryHistory.storageKey(for: normalizedURL)) ?? []
     _ = overviewLoadSequence.begin()
     overview = nil
     backendURLDraft = normalizedURL
@@ -671,6 +677,7 @@ final class AppStore: ObservableObject {
     if backendURL != Self.defaultBackendURL {
       backendRevision &+= 1
       _ = subscriptionLoadSequence.begin()
+      resetSubscriptionRefreshState()
       subscriptionListFilter = .all
       selectedSubscriptionGroupID = nil
       subscriptionGroupID = nil
@@ -684,6 +691,7 @@ final class AppStore: ObservableObject {
       pendingMetadataRecognitionBackendURL = nil
     }
     backendURL = Self.defaultBackendURL
+    searchHistory = backendUserDefaults.stringArray(forKey: SearchQueryHistory.storageKey(for: Self.defaultBackendURL)) ?? []
     overview = nil
     backendURLDraft = Self.defaultBackendURL
     backendUserDefaults.set(Self.defaultBackendURL, forKey: "backendURL")
@@ -2037,20 +2045,20 @@ final class AppStore: ObservableObject {
 
   func performSearch() async {
     let page = searchPaginationEnabled ? 1 : nil
-    await performSearch(page: page)
+    await performSearch(page: page, recordHistory: true)
   }
 
   func performPreviousSearchPage() async {
     guard searchCanGoToPreviousPage else { return }
-    await performSearch(page: searchCurrentPage - 1)
+    await performSearch(page: searchCurrentPage - 1, recordHistory: false)
   }
 
   func performNextSearchPage() async {
     guard searchCanGoToNextPage else { return }
-    await performSearch(page: searchCurrentPage + 1)
+    await performSearch(page: searchCurrentPage + 1, recordHistory: false)
   }
 
-  private func performSearch(page: Int?) async {
+  private func performSearch(page: Int?, recordHistory: Bool) async {
     guard !isLoading else { return }
     let keyword = searchKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !keyword.isEmpty else {
@@ -2065,6 +2073,7 @@ final class AppStore: ObservableObject {
     let requestedPage = searchPaginationEnabled ? max(1, page ?? 1) : nil
     let endpoint = backendURL
     let requestClient = client
+    if recordHistory { rememberSearch(keyword) }
     let succeeded = await run(
       "搜索资源",
       loadingDetail: requestedPage.map { "正在搜索第 \($0) 页，每个站点仅请求一页：\(keyword)" }
@@ -2112,6 +2121,26 @@ final class AppStore: ObservableObject {
     if succeeded, let requestedPage {
       searchCurrentPage = requestedPage
     }
+  }
+
+  func fillSearchFromHistory(_ query: String) {
+    searchKeyword = query
+    resetSearchPagination()
+  }
+
+  func removeSearchHistory(_ query: String) {
+    searchHistory = SearchQueryHistory.removing(query, from: searchHistory)
+    backendUserDefaults.set(searchHistory, forKey: SearchQueryHistory.storageKey(for: backendURL))
+  }
+
+  func clearSearchHistory() {
+    searchHistory = []
+    backendUserDefaults.removeObject(forKey: SearchQueryHistory.storageKey(for: backendURL))
+  }
+
+  private func rememberSearch(_ query: String) {
+    searchHistory = SearchQueryHistory.adding(query, to: searchHistory)
+    backendUserDefaults.set(searchHistory, forKey: SearchQueryHistory.storageKey(for: backendURL))
   }
 
   func clearSearch() {
@@ -3240,13 +3269,19 @@ final class AppStore: ObservableObject {
     let endpoint = backendURL
     let revision = backendRevision
     let requestClient = client
-    await run(
+    let completed = await run(
       "刷新订阅",
       loadingDetail: subscription.name,
       successTitle: "订阅刷新完成",
       successDetail: { self.lastRefreshResponse?.diagnostics.map { "抓取 \($0.totalFetched)，匹配 \($0.matchedCount)，跳过 \(self.lastRefreshResponse?.skipped.count ?? 0)" } ?? "匹配 \(self.lastRefreshResponse?.matched.count ?? 0)，新增 \(self.lastRefreshResponse?.added.count ?? 0)，跳过 \(self.lastRefreshResponse?.skipped.count ?? 0)" }
     ) {
-      let response = try await requestClient.refreshSubscription(id: subscription.id)
+      let response: RefreshResponse
+      do {
+        response = try await requestClient.refreshSubscription(id: subscription.id)
+      } catch {
+        guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
+        throw error
+      }
       guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
       showingRefreshAllSummary = false
       lastRefreshResponse = response
@@ -3267,11 +3302,46 @@ final class AppStore: ObservableObject {
       }
       response.warnings.forEach { appendLog($0) }
       await loadHistory()
+    }
+    guard completed, backendURL == endpoint, backendRevision == revision else { return }
+    await loadOverview(silent: true)
+    guard backendURL == endpoint, backendRevision == revision else { return }
+    do {
       let detail = try await requestClient.subscriptionDetail(id: subscription.id)
-      let loaded = try await requestClient.subscriptions()
-      guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
+      guard backendURL == endpoint, backendRevision == revision else { return }
       selectedSubscriptionDetail = detail
+    } catch {
+      guard backendURL == endpoint, backendRevision == revision else { return }
+      appendLog("订阅刷新成功，但更新详情失败：\(error.localizedDescription)")
+    }
+    do {
+      let loaded = try await requestClient.subscriptions()
+      guard backendURL == endpoint, backendRevision == revision else { return }
       updateSubscriptions(loaded)
+    } catch {
+      guard backendURL == endpoint, backendRevision == revision else { return }
+      appendLog("订阅刷新成功，但更新列表失败：\(error.localizedDescription)")
+    }
+  }
+
+  private func resetSubscriptionRefreshState() {
+    lastRefreshResponse = nil
+    lastRefreshAllResponse = nil
+    showingRefreshAllSummary = false
+    refreshQueueStates = [:]
+    refreshQueueCurrentID = nil
+    refreshQueueProgressText = ""
+    refreshQueueRunning = false
+    let refreshLabels: Set<String> = ["刷新订阅", "刷新全部订阅"]
+    activeOperationLabels = activeOperationLabels.filter { !refreshLabels.contains($0.value) }
+    isLoading = !activeOperationLabels.isEmpty
+    activeOperationLabel = activeOperationLabels.max(by: { $0.key < $1.key })?.value
+    let refreshStatusTitles: Set<String> = [
+      "刷新订阅中...", "刷新全部订阅中...", "订阅刷新完成", "全部订阅刷新完成",
+      "刷新订阅失败", "刷新全部订阅失败", "订阅刷新失败", "部分订阅刷新失败",
+    ]
+    if refreshStatusTitles.contains(operationStatus.title) {
+      operationStatus = .idle
     }
   }
 
@@ -3299,6 +3369,7 @@ final class AppStore: ObservableObject {
     refreshQueueStates = states
     refreshQueueCurrentID = nil
     refreshQueueProgressText = skipped > 0 ? "准备刷新 \(queue.count) 个订阅，跳过 \(skipped) 个停用订阅" : "准备刷新 \(queue.count) 个订阅"
+    var refreshRequestSucceeded = false
     let completed = await run("刷新全部订阅", successTitle: "全部订阅刷新完成", successDetail: { self.refreshQueueProgressText }) {
       var responses: [RefreshResponse] = []
       var warnings: [String] = []
@@ -3311,11 +3382,9 @@ final class AppStore: ObservableObject {
         do {
           let response = try await requestClient.refreshSubscription(id: subscription.id)
           guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
-          let loaded = try await requestClient.subscriptions()
-          guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
+          refreshRequestSucceeded = true
           responses.append(response)
           refreshQueueStates[subscription.id] = response.warnings.isEmpty ? "done" : "done"
-          updateSubscriptions(loaded)
           lastRefreshResponse = response
           selectedMatchSubscriptionID = subscription.id
           subscriptionMatches = response.matchRecords
@@ -3327,6 +3396,7 @@ final class AppStore: ObservableObject {
           appendLog(message)
         }
       }
+      refreshQueueCurrentID = nil
       let response = RefreshAllResponse(refreshed: responses.count, responses: responses, warnings: warnings, skipped: skipped)
       showingRefreshAllSummary = true
       lastRefreshAllResponse = response
@@ -3334,9 +3404,6 @@ final class AppStore: ObservableObject {
         lastRefreshResponse = first
         selectedMatchSubscriptionID = first.subscriptionId
         subscriptionMatches = first.matchRecords
-        let detail = try await requestClient.subscriptionDetail(id: first.subscriptionId)
-        guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
-        selectedSubscriptionDetail = detail
       } else {
         lastRefreshResponse = nil
         selectedMatchSubscriptionID = nil
@@ -3349,11 +3416,17 @@ final class AppStore: ObservableObject {
       response.warnings.forEach { appendLog($0) }
       response.responses.flatMap(\.warnings).forEach { appendLog($0) }
       await loadHistory()
-      let loaded = try await requestClient.subscriptions()
-      guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
-      updateSubscriptions(loaded)
       refreshQueueCurrentID = nil
       refreshQueueRunning = false
+    }
+    guard backendURL == endpoint, backendRevision == revision else { return }
+    if completed, let response = lastRefreshAllResponse {
+      let failed = refreshQueueStates.values.filter { $0 == "failed" }.count
+      if failed > 0 {
+        setStatus(.failed,
+          title: response.refreshed == 0 ? "订阅刷新失败" : "部分订阅刷新失败",
+          detail: refreshQueueProgressText)
+      }
     }
     if !completed {
       if let current = refreshQueueCurrentID {
@@ -3361,6 +3434,29 @@ final class AppStore: ObservableObject {
       }
       refreshQueueCurrentID = nil
       refreshQueueRunning = false
+    }
+    guard completed else { return }
+    if refreshRequestSucceeded {
+      await loadOverview(silent: true)
+      guard backendURL == endpoint, backendRevision == revision else { return }
+    }
+    if let first = lastRefreshAllResponse?.responses.first {
+      do {
+        let detail = try await requestClient.subscriptionDetail(id: first.subscriptionId)
+        guard backendURL == endpoint, backendRevision == revision else { return }
+        selectedSubscriptionDetail = detail
+      } catch {
+        guard backendURL == endpoint, backendRevision == revision else { return }
+        appendLog("批量刷新已结束，但更新订阅详情失败：\(error.localizedDescription)")
+      }
+    }
+    do {
+      let loaded = try await requestClient.subscriptions()
+      guard backendURL == endpoint, backendRevision == revision else { return }
+      updateSubscriptions(loaded)
+    } catch {
+      guard backendURL == endpoint, backendRevision == revision else { return }
+      appendLog("批量刷新已结束，但更新订阅列表失败：\(error.localizedDescription)")
     }
   }
 
@@ -4848,6 +4944,7 @@ final class AppStore: ObservableObject {
     let publishesStatus = showsLoading && parentOperationID == nil
     let operationID = parentOperationID ?? operationSequence.begin()
     let previousStatus = operationStatus
+    let operationBackendRevision = backendRevision
     if publishesStatus {
       beginOperation(operationID, label: label, detail: loadingDetail)
     }
@@ -4865,7 +4962,7 @@ final class AppStore: ObservableObject {
         }
         return true
       } catch is CancellationError {
-        if publishesStatus, operationSequence.accepts(operationID) {
+        if publishesStatus, backendRevision == operationBackendRevision, operationSequence.accepts(operationID) {
           operationStatus = previousStatus
         }
         return false

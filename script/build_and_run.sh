@@ -4,8 +4,8 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="Kisetsu"
 BUNDLE_ID="com.kisetsu.app"
-APP_VERSION="0.1.5"
-BUILD_NUMBER="6"
+APP_VERSION="1.0"
+BUILD_NUMBER="1"
 MIN_SYSTEM_VERSION="15.0"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -112,6 +112,9 @@ open_app() {
     fi
     if [[ -n "${KISETSU_DESKTOP_ORGANIZE_FIXTURE_URL:-}" ]]; then
       open_args+=(--env "KISETSU_DESKTOP_ORGANIZE_FIXTURE_URL=$KISETSU_DESKTOP_ORGANIZE_FIXTURE_URL")
+    fi
+    if [[ -n "${KISETSU_OVERVIEW_REFRESH_ALERT_FIXTURE:-}" ]]; then
+      open_args+=(--env "KISETSU_OVERVIEW_REFRESH_ALERT_FIXTURE=$KISETSU_OVERVIEW_REFRESH_ALERT_FIXTURE")
     fi
   fi
   /usr/bin/open "${open_args[@]}"

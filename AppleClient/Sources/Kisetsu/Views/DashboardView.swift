@@ -26,7 +26,7 @@ struct DashboardView: View {
             subscriptions: showcaseSubscriptions,
             downloadingItems: overview?.downloadingItems ?? [],
             pendingOrganizeItems: overview?.pendingOrganizeItems ?? [],
-            issues: overview?.issues ?? [],
+            issues: overview.map(OverviewPresentation.actionableIssues) ?? [],
             selection: $heroSelection,
             open: { subscription in
               Task {
@@ -36,10 +36,16 @@ struct DashboardView: View {
             }
           )
         }
-        if let overview, !overview.issues.isEmpty {
+        if let overview, !OverviewPresentation.actionableIssues(overview).isEmpty {
           VStack(alignment: .leading, spacing: 10) {
-            heading("需要处理") { openTasks(.history) }
-            ForEach(overview.issues.prefix(2)) { item in overviewRow(item) }
+            issueHeading(OverviewPresentation.actionableIssues(overview))
+            ForEach(OverviewPresentation.actionableIssues(overview).prefix(2)) { item in overviewRow(item) }
+          }
+        }
+        if let overview, !OverviewPresentation.subscriptionRefreshAlerts(overview).isEmpty {
+          VStack(alignment: .leading, spacing: 10) {
+            heading("订阅刷新提醒") { navigate(.subscriptions) }
+            ForEach(OverviewPresentation.subscriptionRefreshAlerts(overview).prefix(2)) { item in overviewRow(item) }
           }
         }
         if !subscriptions.isEmpty { subscriptionRail }
@@ -103,6 +109,22 @@ struct DashboardView: View {
       Button("查看全部", systemImage: "chevron.right", action: action)
         .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.secondary)
         .help("查看全部\(title)")
+    }
+  }
+
+  private func issueHeading(_ items: [OverviewItem]) -> some View {
+    HStack {
+      Text("需要处理").font(.headline)
+      Spacer()
+      if items.allSatisfy({ $0.target.targetType == "download_history" }) {
+        Button("查看全部", systemImage: "chevron.right") { openTasks(.history) }
+          .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.secondary)
+          .help("查看下载问题")
+      } else if items.allSatisfy({ $0.target.targetType == "organize_history" }) {
+        Button("查看全部", systemImage: "chevron.right") { openTasks(.organized) }
+          .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.secondary)
+          .help("查看整理问题")
+      }
     }
   }
 
@@ -180,19 +202,28 @@ struct DashboardView: View {
     }
   }
 
-  private func overviewRow(_ item: OverviewItem) -> some View {
-    Button { handleOverviewItem(item) } label: {
-      HStack(alignment: .top, spacing: 12) {
-        Image(systemName: item.systemImage ?? "arrow.down.circle")
-          .foregroundStyle(item.severity == "error" ? Color.orange : Color.secondary).frame(width: 22)
-        VStack(alignment: .leading, spacing: 4) {
-          Text(item.title).font(.callout.weight(.medium)).lineLimit(2)
-          if let detail = item.detail { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-        }
-        Spacer(minLength: 4)
+  @ViewBuilder private func overviewRow(_ item: OverviewItem) -> some View {
+    if OverviewPresentation.hasDestination(item) {
+      Button { handleOverviewItem(item) } label: { overviewRowContent(item, showsChevron: true) }
+        .buttonStyle(.plain)
+    } else {
+      overviewRowContent(item, showsChevron: false)
+    }
+  }
+
+  private func overviewRowContent(_ item: OverviewItem, showsChevron: Bool) -> some View {
+    HStack(alignment: .top, spacing: 12) {
+      Image(systemName: item.systemImage ?? "arrow.down.circle")
+        .foregroundStyle(item.severity == "error" ? Color.orange : Color.secondary).frame(width: 22)
+      VStack(alignment: .leading, spacing: 4) {
+        Text(item.title).font(.callout.weight(.medium)).lineLimit(2)
+        if let detail = item.detail { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+      }
+      Spacer(minLength: 4)
+      if showsChevron {
         Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-      }.contentShape(Rectangle())
-    }.buttonStyle(.plain)
+      }
+    }.contentShape(Rectangle())
   }
 
   private func openTasks(_ section: DesktopTaskSection) {
@@ -232,7 +263,7 @@ struct DashboardView: View {
       store.selectedHistorySubscriptionID = item.target.subscriptionId
       openTasks(.history)
     default:
-      navigate(.dashboard)
+      break
     }
   }
 

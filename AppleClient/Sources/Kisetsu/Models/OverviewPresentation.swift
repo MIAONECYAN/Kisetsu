@@ -85,7 +85,7 @@ enum OverviewPresentation {
     merged.latestRefreshAt = item.latestRefreshAt ?? fallback.latestRefreshAt
     merged.latestRefreshSummary = item.latestRefreshSummary ?? fallback.latestRefreshSummary
     merged.latestOrganizedAt = item.latestOrganizedAt ?? fallback.latestOrganizedAt
-    merged.latestError = item.latestError ?? fallback.latestError
+    merged.latestError = item.latestError
     merged.metadataBindingCount = item.metadataBindingCount ?? fallback.metadataBindingCount
     merged.metadataTitles = item.metadataTitles ?? fallback.metadataTitles
     merged.coverage = item.coverage ?? fallback.coverage
@@ -169,6 +169,38 @@ enum OverviewPresentation {
     return (overview.pendingOrganizeItems + overview.downloadingItems).filter {
       let kind = $0.target.targetType == "organize_preview" ? "download_history" : $0.target.targetType
       return seen.insert("\(kind):\($0.target.targetId ?? $0.id)").inserted
+    }
+  }
+
+  static func actionableIssues(_ overview: OverviewResponse) -> [OverviewItem] {
+    let refreshSubscriptionIDs = Set(overview.refreshAlerts.compactMap { item in
+      item.target.targetType == "subscription" ? item.target.subscriptionId : nil
+    })
+    return overview.issues.filter { item in
+      !(item.target.targetType == "subscription"
+        && item.id.hasPrefix("subscription-issue:")
+        && item.target.subscriptionId.map(refreshSubscriptionIDs.contains) == true)
+    }
+  }
+
+  static func subscriptionRefreshAlerts(_ overview: OverviewResponse) -> [OverviewItem] {
+    var seen = Set<String>()
+    return overview.refreshAlerts
+      .filter { seen.insert($0.target.targetId ?? $0.id).inserted }
+      .map { item in
+        var alert = item
+        alert.status = "刷新失败"
+        alert.severity = "warning"
+        return alert
+      }
+  }
+
+  static func hasDestination(_ item: OverviewItem) -> Bool {
+    switch item.target.targetType {
+    case "subscription", "download_history", "organize_preview", "organize_preview_record", "organize_history":
+      true
+    default:
+      false
     }
   }
 }
@@ -311,6 +343,27 @@ enum OverviewDebugFixtures {
         response.pendingOrganizeItems = generated.pendingOrganizeItems
         response.pendingOrganizeCount = generated.pendingOrganizeCount
       }
+    }
+    if ProcessInfo.processInfo.environment["KISETSU_OVERVIEW_REFRESH_ALERT_FIXTURE"] == "1",
+       let subscription = subjects.first {
+      let target = try! JSONDecoder().decode(
+        OverviewActionTarget.self,
+        from: Data("{\"targetType\":\"subscription\",\"targetId\":\"\(subscription.id)\",\"subscriptionId\":\(subscription.id),\"action\":\"open\"}".utf8)
+      )
+      response.refreshAlerts = [OverviewItem(
+        id: "subscription-refresh-alert:\(subscription.id)", title: subscription.name,
+        subtitle: "订阅刷新失败", detail: "站点请求超时，请稍后重试。",
+        status: "刷新失败", severity: "warning", systemImage: "dot.radiowaves.left.and.right",
+        createdAt: formatter.string(from: now), target: target
+      )]
+      response.issues = [OverviewItem(
+        id: "subscription-config-issue:\(subscription.id)", title: subscription.name,
+        subtitle: "订阅配置需检查", detail: "RSS：请填写 RSS 地址。",
+        status: "需要处理", severity: "error", systemImage: "exclamationmark.triangle",
+        createdAt: formatter.string(from: now), target: target
+      )]
+      response.issuesCount = 1
+      response.subscriptionSummary.failed = 1
     }
     response.runtimeItems = [
       .init(id: "subscriptions", title: "订阅检查", detail: "自动检查已开启", state: "running", checkedAt: formatter.string(from: now.addingTimeInterval(-900)), nextAt: formatter.string(from: now.addingTimeInterval(900))),

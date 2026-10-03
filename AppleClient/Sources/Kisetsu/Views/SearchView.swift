@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SearchView: View {
@@ -5,24 +6,47 @@ struct SearchView: View {
   @State private var showingSubscriptionEditor = false
   @State private var showingSearchSettings = false
   @State private var showingSearchSites = false
+  @State private var showingSearchHistory = false
+  @State private var titlebarClickMonitor: Any?
+  @FocusState private var searchFieldFocused: Bool
 
   var body: some View {
     VStack(spacing: 0) {
       VStack(alignment: .leading, spacing: 12) {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
           TextField("番剧关键词", text: $store.searchKeyword)
             .textFieldStyle(.roundedBorder)
+            .frame(maxWidth: .infinity)
             .layoutPriority(1)
+            .focused($searchFieldFocused)
+            .onChange(of: searchFieldFocused) { _, focused in
+              if focused { showingSearchHistory = true }
+            }
             .onSubmit {
+              dismissSearchHistory()
               Task { await store.performSearch() }
+            }
+            .overlay(alignment: .bottomLeading) {
+              if showingSearchHistory {
+                GeometryReader { geometry in
+                  SearchHistoryPanel(isPresented: $showingSearchHistory)
+                    .environmentObject(store)
+                    .fixedSize()
+                    .offset(y: geometry.size.height + 6)
+                }
+              }
             }
 
           SearchCommandControl(
             showingSitePicker: $showingSearchSites,
-            search: { Task { await store.performSearch() } }
+            search: {
+              dismissSearchHistory()
+              Task { await store.performSearch() }
+            }
           )
 
           Button {
+            dismissSearchHistory()
             store.clearSearch()
           } label: {
             Image(systemName: "xmark.circle")
@@ -33,6 +57,7 @@ struct SearchView: View {
           .accessibilityLabel("清空搜索")
 
           Button {
+            dismissSearchHistory()
             showingSearchSettings.toggle()
           } label: {
             Image(systemName: "gearshape")
@@ -46,64 +71,77 @@ struct SearchView: View {
               .environmentObject(store)
           }
         }
-
+        .zIndex(showingSearchHistory ? 1 : 0)
         searchSiteAvailability
 
         if !searchIssueMessages.isEmpty {
           SearchIssueStrip(messages: searchIssueMessages)
         }
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background {
+        Color.clear
+          .contentShape(Rectangle())
+          .onTapGesture { dismissSearchHistory() }
+      }
       .appToolbarSurface()
+      .zIndex(showingSearchHistory ? 1 : 0)
 
-      if store.searchResults.isEmpty {
-        ContentUnavailableView("暂无搜索结果", systemImage: "magnifyingglass", description: Text(emptySearchDescription))
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-      } else {
-        VStack(spacing: 0) {
-          SearchFilterStrip(
-            fansubCounts: store.searchFansubCounts,
-            selectedFansubs: $store.selectedSearchFansubs,
-            episodeFilter: $store.searchEpisodeFilter,
-            showUnrecognized: $store.searchShowUnrecognizedEpisodes,
-            showBatchOnly: $store.searchShowBatchOnly,
-            resolutionCounts: store.searchResolutionCounts,
-            selectedResolutions: $store.selectedSearchResolutions,
-            shownCount: store.visibleSearchResults.count,
-            totalCount: store.searchResults.count,
-            isFiltering: store.searchFiltering,
-            hasActiveFilters: store.searchHasActiveFilters
-          )
-          .padding(.horizontal, KisetsuStyle.pagePadding)
-          .padding(.vertical, 10)
+      VStack(spacing: 0) {
+        if store.searchResults.isEmpty {
+          ContentUnavailableView("暂无搜索结果", systemImage: "magnifyingglass", description: Text(emptySearchDescription))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+          VStack(spacing: 0) {
+            SearchFilterStrip(
+              fansubCounts: store.searchFansubCounts,
+              selectedFansubs: $store.selectedSearchFansubs,
+              episodeFilter: $store.searchEpisodeFilter,
+              showUnrecognized: $store.searchShowUnrecognizedEpisodes,
+              showBatchOnly: $store.searchShowBatchOnly,
+              resolutionCounts: store.searchResolutionCounts,
+              selectedResolutions: $store.selectedSearchResolutions,
+              shownCount: store.visibleSearchResults.count,
+              totalCount: store.searchResults.count,
+              isFiltering: store.searchFiltering,
+              hasActiveFilters: store.searchHasActiveFilters
+            )
+            .padding(.horizontal, KisetsuStyle.pagePadding)
+            .padding(.vertical, 10)
 
-          if store.visibleSearchResults.isEmpty {
-            ContentUnavailableView("没有符合筛选的结果", systemImage: "line.3.horizontal.decrease.circle", description: Text("调整字幕组、分辨率或集数筛选后会立即恢复显示。"))
-              .frame(maxWidth: .infinity, maxHeight: .infinity)
-          } else {
-          List(store.visibleSearchResults) { result in
-            SearchResultRow(result: result) {
-              suggestSubscription(from: result)
+            if store.visibleSearchResults.isEmpty {
+              ContentUnavailableView("没有符合筛选的结果", systemImage: "line.3.horizontal.decrease.circle", description: Text("调整字幕组、分辨率或集数筛选后会立即恢复显示。"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+              List(store.visibleSearchResults) { result in
+                SearchResultRow(result: result) {
+                  suggestSubscription(from: result)
+                }
+              }
             }
           }
-          }
+        }
+
+        if store.searchPaginationEnabled, store.searchDiagnostics != nil {
+          Divider()
+          SearchPaginationBar(
+            summary: store.searchPaginationSummaryText,
+            canGoPrevious: store.searchCanGoToPreviousPage,
+            canGoNext: store.searchCanGoToNextPage,
+            isLoading: store.isLoading,
+            previous: {
+              Task { await store.performPreviousSearchPage() }
+            },
+            next: {
+              Task { await store.performNextSearchPage() }
+            }
+          )
         }
       }
-
-      if store.searchPaginationEnabled, store.searchDiagnostics != nil {
-        Divider()
-        SearchPaginationBar(
-          summary: store.searchPaginationSummaryText,
-          canGoPrevious: store.searchCanGoToPreviousPage,
-          canGoNext: store.searchCanGoToNextPage,
-          isLoading: store.isLoading,
-          previous: {
-            Task { await store.performPreviousSearchPage() }
-          },
-          next: {
-            Task { await store.performNextSearchPage() }
-          }
-        )
-      }
+      .contentShape(Rectangle())
+      .simultaneousGesture(TapGesture().onEnded {
+        if showingSearchHistory { dismissSearchHistory() }
+      })
     }
     .sheet(isPresented: $showingSubscriptionEditor) {
       SubscriptionEditorSheet {
@@ -123,6 +161,46 @@ struct SearchView: View {
     .onChange(of: store.searchPaginationEnabled) { _, _ in
       store.resetSearchPagination()
     }
+    .onChange(of: showingSearchSites) { _, isShowing in
+      if isShowing { dismissSearchHistory() }
+    }
+    .onChange(of: showingSearchHistory) { _, isShowing in
+      if isShowing {
+        monitorOutsideSearchClicks()
+      } else {
+        searchFieldFocused = false
+        stopMonitoringOutsideSearchClicks()
+      }
+    }
+    .onDisappear {
+      dismissSearchHistory()
+      stopMonitoringOutsideSearchClicks()
+    }
+    .onExitCommand {
+      showingSearchHistory = false
+    }
+  }
+
+  private func dismissSearchHistory() {
+    showingSearchHistory = false
+    searchFieldFocused = false
+    NSApp.keyWindow?.makeFirstResponder(nil)
+  }
+
+  private func monitorOutsideSearchClicks() {
+    guard titlebarClickMonitor == nil else { return }
+    titlebarClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+      guard let window = event.window,
+            !window.contentLayoutRect.contains(event.locationInWindow) else { return event }
+      Task { @MainActor in dismissSearchHistory() }
+      return event
+    }
+  }
+
+  private func stopMonitoringOutsideSearchClicks() {
+    guard let titlebarClickMonitor else { return }
+    NSEvent.removeMonitor(titlebarClickMonitor)
+    self.titlebarClickMonitor = nil
   }
 
   private var emptySearchDescription: String {
@@ -191,6 +269,61 @@ struct SearchView: View {
         showingSubscriptionEditor = true
       }
     }
+  }
+}
+
+private struct SearchHistoryPanel: View {
+  @EnvironmentObject private var store: AppStore
+  @Binding var isPresented: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        Text("搜索历史").font(.headline)
+        Spacer()
+        if !store.searchHistory.isEmpty {
+          Button("清空历史", systemImage: "trash", role: .destructive) {
+            store.clearSearchHistory()
+          }
+          .labelStyle(.iconOnly)
+          .help("清空历史")
+        }
+      }
+      if store.searchHistory.isEmpty {
+        Text("暂无搜索历史")
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+      } else {
+        ScrollView {
+          VStack(spacing: 2) {
+            ForEach(store.searchHistory, id: \.self) { query in
+              HStack(spacing: 6) {
+                Button {
+                  store.fillSearchFromHistory(query)
+                  isPresented = false
+                } label: {
+                  Text(query).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .help("填入 \(query)")
+                Button("删除历史记录", systemImage: "xmark") {
+                  store.removeSearchHistory(query)
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .help("删除 \(query)")
+              }
+              .padding(.vertical, 5)
+            }
+          }
+        }
+        .frame(maxHeight: 300)
+      }
+    }
+    .padding(14)
+    .frame(width: 300)
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
   }
 }
 

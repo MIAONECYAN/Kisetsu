@@ -1533,6 +1533,7 @@ class OverviewResponse(BaseModel):
     downloading_items: list[OverviewItem] = Field(default_factory=list)
     pending_organize_items: list[OverviewItem] = Field(default_factory=list)
     issues: list[OverviewItem] = Field(default_factory=list)
+    refresh_alerts: list[OverviewItem] = Field(default_factory=list)
     recent_completed: list[OverviewItem] = Field(default_factory=list)
     subscription_summary: OverviewSubscriptionSummary = Field(default_factory=OverviewSubscriptionSummary)
     downloading_count: int = 0

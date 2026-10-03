@@ -135,6 +135,10 @@ struct KisetsuMobileApp: App {
       defaults.set(backendURL, forKey: "backendURL")
       defaults.set(true, forKey: "mobileBackendConfigured")
     }
+    if MobileDebugConfiguration.usesFixtures(environment: environment),
+       environment["KISETSU_MOBILE_SEARCH_HISTORY_FIXTURE"] == "1" {
+      defaults.set(["历史番组"], forKey: SearchQueryHistory.storageKey(for: AppStore.defaultBackendURL))
+    }
     #endif
     let appStore = AppStore(backendUserDefaults: defaults)
     #if DEBUG

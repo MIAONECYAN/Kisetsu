@@ -6,6 +6,7 @@ struct MobileSearchView: View {
   @State private var showingSites = false
   @State private var showingFilters = false
   @State private var showingSettings = false
+  @FocusState private var searchFocused: Bool
   @State private var selectedResult: SearchResult?
   @State private var downloadQueue = MobileSearchDownloadQueue()
   @State private var downloadDraft: MobileSearchDownloadDraft?
@@ -14,6 +15,41 @@ struct MobileSearchView: View {
 
   var body: some View {
     List {
+      if searchFocused {
+        Section("搜索历史") {
+          if store.searchHistory.isEmpty {
+            Text("暂无搜索历史")
+              .foregroundStyle(.secondary)
+          } else {
+            ForEach(store.searchHistory, id: \.self) { query in
+              HStack(spacing: 12) {
+                Button {
+                  store.fillSearchFromHistory(query)
+                  searchFocused = false
+                } label: {
+                  Label(query, systemImage: "clock.arrow.circlepath")
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+
+                Button("删除 \(query)", systemImage: "xmark") {
+                  store.removeSearchHistory(query)
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("删除历史记录 \(query)")
+              }
+            }
+
+            Button("清空搜索历史", systemImage: "trash", role: .destructive) {
+              store.clearSearchHistory()
+            }
+          }
+        }
+      }
+
       if store.searchHasActiveFilters || !store.searchResults.isEmpty {
         Section {
           HStack(spacing: 8) {
@@ -110,6 +146,7 @@ struct MobileSearchView: View {
     .listStyle(.plain)
     .mobileNavigationTitle("搜索")
     .searchable(text: $store.searchKeyword, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索动漫或资源")
+    .searchFocused($searchFocused)
     .onSubmit(of: .search) {
       Task { await store.performSearch() }
     }

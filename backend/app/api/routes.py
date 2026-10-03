@@ -2651,7 +2651,6 @@ def _history_covers_organize(
 INFO_REFRESH_PREFIXES = (
     "抓取 ",
     "使用 mikan bangumi id=",
-    "mikan Bangumi：",
     "mikan 总集数：",
 )
 
@@ -2667,6 +2666,22 @@ ERROR_REFRESH_MARKERS = (
     "读取失败",
     "网络",
     "认证",
+    "超时",
+    "请填写",
+    "拒绝访问",
+    "访问限制",
+    "站点返回 HTTP",
+)
+
+ACTIONABLE_REFRESH_MARKERS = (
+    "请填写",
+    "未配置",
+    "认证失败",
+    "HTTP 401",
+    "凭据无效",
+    "密码错误",
+    "Cookie 已失效",
+    "API Key 无效",
 )
 
 
@@ -2708,6 +2723,9 @@ def _refresh_history_model(row: dict) -> SubscriptionRefreshHistory:
     return SubscriptionRefreshHistory(**payload)
 
 
+_SUBSCRIPTION_MATCH_ERROR = "存在提交失败的匹配条目"
+
+
 def _subscription_latest_status(
     refresh_history: list[SubscriptionRefreshHistory],
     matches: list[SubscriptionMatch],
@@ -2718,7 +2736,7 @@ def _subscription_latest_status(
     if refresh_history and refresh_history[0].errors:
         latest_error = "；".join(refresh_history[0].errors[:3])
     elif any(item.status == "error" for item in matches):
-        latest_error = "存在提交失败的匹配条目"
+        latest_error = _SUBSCRIPTION_MATCH_ERROR
     return latest_refresh_at, latest_summary, latest_error
 
 
@@ -2978,6 +2996,7 @@ async def overview(request: Request, store: Store = Depends(get_store)) -> Overv
     downloading_items: list[OverviewItem] = []
     pending_organize_items: list[OverviewItem] = []
     issues: list[OverviewItem] = []
+    refresh_alerts: list[OverviewItem] = []
     recent_completed: list[OverviewItem] = []
 
     for item in history:
@@ -3130,20 +3149,24 @@ async def overview(request: Request, store: Store = Depends(get_store)) -> Overv
 
     for subscription in subscriptions:
         if subscription.latest_error:
-            issues.append(
+            match_error = subscription.latest_error == _SUBSCRIPTION_MATCH_ERROR
+            requires_action = match_error or any(marker in subscription.latest_error for marker in ACTIONABLE_REFRESH_MARKERS)
+            (issues if requires_action else refresh_alerts).append(
                 _overview_item(
-                    item_id=f"subscription-issue:{subscription.id}",
+                    item_id=(f"subscription-match-issue:{subscription.id}" if match_error else
+                             f"subscription-config-issue:{subscription.id}" if requires_action else
+                             f"subscription-refresh-alert:{subscription.id}"),
                     title=subscription.name,
-                    subtitle="订阅刷新失败",
+                    subtitle="匹配条目提交失败" if match_error else "订阅配置需检查" if requires_action else "订阅刷新失败",
                     detail=subscription.latest_error,
-                    status="需要处理",
-                    severity="error",
-                    system_image="dot.radiowaves.left.and.right",
+                    status="需要处理" if requires_action else "刷新失败",
+                    severity="error" if requires_action else "warning",
+                    system_image="exclamationmark.triangle" if requires_action else "dot.radiowaves.left.and.right",
                     created_at=subscription.latest_refresh_at,
                     target_type="subscription",
                     target_id=subscription.id,
                     subscription_id=subscription.id,
-                    action="review",
+                    action="review" if requires_action else "open",
                 )
             )
         elif subscription.latest_refresh_summary:
@@ -3166,6 +3189,7 @@ async def overview(request: Request, store: Store = Depends(get_store)) -> Overv
 
     recent_completed.sort(key=lambda item: item.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     issues.sort(key=lambda item: item.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    refresh_alerts.sort(key=lambda item: item.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     pending_organize_items.sort(key=lambda item: item.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     downloading_items.sort(key=lambda item: item.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     failed_subscriptions = [item for item in subscriptions if item.latest_error]
@@ -3191,6 +3215,7 @@ async def overview(request: Request, store: Store = Depends(get_store)) -> Overv
         downloading_items=downloading_items[:8],
         pending_organize_items=pending_organize_items,
         issues=issues[:10],
+        refresh_alerts=refresh_alerts[:10],
         recent_completed=recent_completed[:8],
         subscription_summary=OverviewSubscriptionSummary(
             total=len(subscriptions),
