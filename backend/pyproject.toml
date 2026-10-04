@@ -1,6 +1,6 @@
 [project]
 name = "kisetsu-backend"
-version = "0.1.0"
+version = "1.0.2"
 description = "Local FastAPI backend for Kisetsu."
 requires-python = ">=3.11"
 dependencies = [
@@ -13,4 +13,3 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-
