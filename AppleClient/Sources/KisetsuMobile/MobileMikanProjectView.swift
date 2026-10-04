@@ -237,7 +237,13 @@ private struct MobileMikanAnimeDetailView: View {
         return
       }
     }
-    .sheet(isPresented: $showingSubscriptionEditor) {
+    .sheet(isPresented: $store.showingMetadataReview) {
+      MobileMetadataReviewSheet()
+        .environmentObject(store)
+    }
+    .sheet(isPresented: $showingSubscriptionEditor, onDismiss: {
+      Task { await store.runPendingMetadataRecognitionIfNeeded() }
+    }) {
       MobileSubscriptionEditorView().environmentObject(store)
     }
     .alert("添加到下载？", isPresented: Binding(
@@ -262,6 +268,8 @@ private struct MobileMikanAnimeDetailView: View {
   private func smartSubscribe(_ result: SearchResult, group: MikanProjectResourceGroup) {
     let endpoint = store.backendURL
     Task {
+      if !store.sitesLoaded { await store.loadSites() }
+      guard store.backendURL == endpoint else { return }
       guard let response = await store.suggestSubscription(from: result, sitesOverride: ["mikan"]),
             let suggestion = response.suggestion,
             store.backendURL == endpoint else { return }

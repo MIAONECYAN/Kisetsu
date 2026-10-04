@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.1",
-          "buildVersion": "2",
-          "date": "2026-10-04T13:15:47Z",
-          "localizedDescription": "智能订阅可选择更新现有订阅；修复 Mikan 字幕组切换后的旧分组限制；iPhone 增加 Mikan 自动刷新与隐藏已订阅，并完善测试匹配详情。",
+          "version": "1.0.2",
+          "buildVersion": "3",
+          "date": "2026-10-04T17:57:26Z",
+          "localizedDescription": "修复从 iPhone 的 Mikan Project 新建订阅后，番组信息识别窗口未自动打开的问题；首次进入时也会先加载站点信息。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5612556,
+          "size": 5614027,
           "minOSVersion": "26.0"
         }
       ],
