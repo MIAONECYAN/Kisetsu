@@ -82,6 +82,20 @@ Kisetsu 将资源搜索、订阅跟踪、下载与整理进度、媒体识别和
 | iPhone 客户端 | `arm64` 未签名 IPA，ZIP 内保留原名 `Kisetsu.ipa`；安装前需自行签名 |
 | `SHA256SUMS.txt` | 校验上述三个发布附件 |
 
+### LiveContainer Source
+
+在 LiveContainer 的 **Sources** 页面添加以下地址，即可从 Source 下载 iPhone 版：
+
+```text
+https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/source.json
+```
+
+Source 指向仓库中原名为 [`Kisetsu.ipa`](LiveContainer/Kisetsu.ipa) 的直链文件，
+与 Release 中供手动下载的 ZIP 并存。IPA 仍未签名，使用前需按 LiveContainer 的
+安装与签名要求配置。后续发布 iPhone 新版本时，维护者需要同步更新
+`LiveContainer/Kisetsu.ipa` 和 [`source.json`](LiveContainer/source.json) 中的版本、大小与日期；
+它们不会自动从 Release 更新。
+
 ## 快速开始
 
 下面的命令使用完整源码仓库；Release 中的后端源码包只包含 `backend/`，不包含这里使用的 `script/` 和 `.env.example`。

@@ -1,0 +1,41 @@
+{
+  "name": "Kisetsu",
+  "identifier": "com.kisetsu.livecontainer.source",
+  "subtitle": "Kisetsu iPhone 客户端",
+  "description": "连接自行运行的 Kisetsu 后端，管理动画订阅、下载与整理进度。",
+  "website": "https://github.com/MIAONECYAN/Kisetsu",
+  "iconURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/AppleClient/Sources/KisetsuMobile/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+  "apps": [
+    {
+      "name": "Kisetsu",
+      "bundleIdentifier": "com.kisetsu.mobile",
+      "developerName": "MIAONECYAN",
+      "subtitle": "自托管动画订阅与媒体整理",
+      "localizedDescription": "连接自行运行的 Kisetsu 后端，在 iPhone 上管理订阅、下载与整理进度。",
+      "iconURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/AppleClient/Sources/KisetsuMobile/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+      "category": "entertainment",
+      "screenshots": [
+        "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/docs/screenshots/iphone-overview.png",
+        "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/docs/screenshots/iphone-subscriptions.png"
+      ],
+      "versions": [
+        {
+          "version": "1.0.1",
+          "buildVersion": "2",
+          "date": "2026-10-04T13:15:47Z",
+          "localizedDescription": "智能订阅可选择更新现有订阅；修复 Mikan 字幕组切换后的旧分组限制；iPhone 增加 Mikan 自动刷新与隐藏已订阅，并完善测试匹配详情。",
+          "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
+          "size": 5612556,
+          "minOSVersion": "26.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSLocalNetworkUsageDescription": "Kisetsu 需要连接你在局域网中配置的后端服务。"
+        }
+      }
+    }
+  ],
+  "news": []
+}
