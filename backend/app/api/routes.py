@@ -257,6 +257,7 @@ from app.services.subscription import (
     match_results_with_diagnostics,
     parse_episode_filter,
     record_processed,
+    subscription_with_matching_mikan_group,
 )
 from app.services.subscription_identity import (
     mikan_bangumi_id_from_value,
@@ -5909,14 +5910,15 @@ async def test_subscription_match(
     diagnostics.reached_internal_safety_limit = search_diagnostics.reached_internal_safety_limit
     diagnostics.has_more = search_diagnostics.has_more
     matched_samples = []
+    effective_subscription = subscription_with_matching_mikan_group(subscription, results)
     for result in matched[:12]:
-        _, _, sample = analyze_match(
-            subscription,
+        is_match, _, sample = analyze_match(
+            effective_subscription,
             result,
             effective_rules,
             include_matched_sample=True,
         )
-        if sample is not None:
+        if is_match and sample is not None:
             matched_samples.append(sample)
     search_scope_message = (
         "结果过多，已在安全上限停止"

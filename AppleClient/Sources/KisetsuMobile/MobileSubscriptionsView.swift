@@ -1169,6 +1169,7 @@ struct MobileOrganizeMappingEditor: View {
 struct MobileSubscriptionEditorView: View {
   @EnvironmentObject private var store: AppStore
   @Environment(\.dismiss) private var dismiss
+  var smartChoice: SmartSubscriptionChoice? = nil
   @State private var isSaving = false
   @State private var isTesting = false
   @State private var isAdvancedMatchingExpanded = false
@@ -1177,6 +1178,28 @@ struct MobileSubscriptionEditorView: View {
   var body: some View {
     NavigationStack {
       Form {
+        if let smartChoice, !smartChoice.candidates.isEmpty {
+          Section {
+            Picker("订阅目标", selection: Binding(
+              get: { store.editingSubscriptionID },
+              set: { selectedID in
+                _ = smartChoice.prepare(
+                  in: store,
+                  existing: smartChoice.candidates.first { $0.id == selectedID }
+                )
+              }
+            )) {
+              ForEach(smartChoice.candidates) { existing in
+                Text("更新 \(existing.name)\(existing.season.map { " · 第\($0)季" } ?? "")")
+                  .tag(Optional(existing.id))
+              }
+              Text("另存为新订阅").tag(nil as Int?)
+            }
+            .disabled(isSaving)
+          } footer: {
+            Text("仅找到同名订阅，尚未确认是否为同一作品与季度。请核对目标和下方字段后再更新。")
+          }
+        }
         Section("基本信息") {
           MobileSubscriptionTextField(
             label: "订阅名称",
@@ -1541,7 +1564,7 @@ struct MobileSubscriptionEditorView: View {
           .buttonStyle(.glass)
           .disabled(isTesting || isSaving || submitDisabledReason != nil)
           if let response = store.lastSubscriptionTestMatchResponse {
-            LabeledContent("匹配结果", value: response.message)
+            MobileSubscriptionTestMatchSummary(response: response)
           }
           if let submitDisabledReason {
             Label(submitDisabledReason, systemImage: "info.circle")
@@ -1697,6 +1720,150 @@ struct MobileSubscriptionEditorView: View {
       field: "集数偏移",
       allowsEmpty: true
     )
+  }
+}
+
+private struct MobileSubscriptionTestMatchSummary: View {
+  let response: SubscriptionTestMatchResponse
+
+  private var metrics: [(String, String)] {
+    let diagnostics = response.diagnostics
+    var values: [(String, String)] = []
+    if let pages = diagnostics.pagesFetched { values.append(("搜索", "\(pages) 页")) }
+    values.append(("抓取", "\(diagnostics.totalFetched)"))
+    if let unique = diagnostics.totalUnique { values.append(("去重后", "\(unique)")) }
+    values.append(("匹配", "\(diagnostics.matchedCount)"))
+    values.append(("字幕组过滤", "\(diagnostics.excludedByFansub)"))
+    values.append(("集数过滤", "\(diagnostics.excludedByEpisodeFilter)"))
+    if let count = diagnostics.matchedBySubtitle, count > 0 { values.append(("副标题命中", "\(count)")) }
+    if let count = diagnostics.episodeParsedFromSubtitle, count > 0 { values.append(("副标题解析集数", "\(count)")) }
+    if let count = diagnostics.excludedByBatchPolicy, count > 0 { values.append(("合集策略排除", "\(count)")) }
+    if let count = diagnostics.excludedByEpisodeCoverage, count > 0 { values.append(("范围未覆盖", "\(count)")) }
+    return values
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("测试匹配结果")
+        .font(.subheadline.weight(.semibold))
+      Text(response.message)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+      LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 8) {
+        ForEach(Array(metrics.enumerated()), id: \.offset) { entry in
+          Text("\(entry.element.0) \(entry.element.1)")
+            .font(.caption)
+        }
+      }
+
+      if let reason = response.diagnostics.stopReasons?.first {
+        Label("停止：\(reason)", systemImage: "checkmark.circle")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      if response.diagnostics.reachedInternalSafetyLimit == true || response.diagnostics.hasMore == true {
+        Label("可能还有更多", systemImage: "ellipsis.circle")
+          .font(.caption)
+          .foregroundStyle(.orange)
+      }
+
+      if !response.matchedSamples.isEmpty {
+        Text("会匹配").font(.caption.weight(.semibold))
+        ForEach(response.matchedSamples.prefix(5)) { item in
+          MobileMatchDiagnosticSampleRow(item: item, accent: .green)
+        }
+      } else if !response.matched.isEmpty {
+        Text("会匹配").font(.caption.weight(.semibold))
+        ForEach(response.matched.prefix(5)) { result in
+          Text(result.title).font(.caption).lineLimit(2)
+        }
+      }
+
+      if !response.excluded.isEmpty {
+        Text("被排除示例").font(.caption.weight(.semibold))
+        ForEach(response.excluded.prefix(5)) { item in
+          MobileMatchDiagnosticSampleRow(item: item, accent: .orange)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+private struct MobileMatchDiagnosticSampleRow: View {
+  let item: MatchDiagnosticSample
+  let accent: Color
+
+  private var details: [String] {
+    var values: [String] = []
+    if let fansub = item.parsedFansub { values.append("字幕组 \(fansub)") }
+    if let siteFansub = item.siteFansub, siteFansub != item.parsedFansub {
+      values.append("站点分组 \(siteFansub)")
+    }
+    if let resolution = item.parsedResolution { values.append("分辨率 \(resolution)") }
+    if item.isBatch == true, let start = item.parsedEpisodeStart, let end = item.parsedEpisodeEnd {
+      values.append("合集 \(start)-\(end)")
+    } else if let episode = item.parsedEpisode {
+      values.append("第 \(episode) 集")
+    }
+    if item.isFinal == true { values.append("完结") }
+    if let seasonText { values.append(seasonText) }
+    if let rule = item.parseRuleName { values.append("规则 \(rule)") }
+    return values
+  }
+
+  private var seasonText: String? {
+    if let reason = item.seasonConflictReason { return reason }
+    guard let season = item.effectiveSeasonNumber else { return nil }
+    let label = "S\(String(format: "%02d", season))"
+    switch item.seasonSource {
+    case "subscription": return "使用订阅季 \(label)"
+    case "title_explicit": return "标题指定 \(label)"
+    case "default": return "默认推断 \(label)"
+    default: return label
+    }
+  }
+
+  private var subtitleEvidence: [String] {
+    var fields: [String] = []
+    if item.titleMatchSource == "subtitle" { fields.append("番名") }
+    if item.episodeParseSource == "subtitle" { fields.append("集数") }
+    if item.seasonParseSource == "subtitle" { fields.append("季度") }
+    if item.fansubParseSource == "subtitle" { fields.append("字幕组") }
+    if item.resolutionParseSource == "subtitle" { fields.append("分辨率") }
+    return fields
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      Text(item.title)
+        .font(.caption)
+        .lineLimit(2)
+      Text(item.reason)
+        .font(.caption2)
+        .foregroundStyle(accent)
+      if !details.isEmpty {
+        Text(details.joined(separator: " · "))
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+      if !subtitleEvidence.isEmpty {
+        Text("副标题提供：\(subtitleEvidence.joined(separator: "、"))")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+      if let reason = item.parseFailureReason {
+        Text(reason)
+          .font(.caption2)
+          .foregroundStyle(.orange)
+      }
+      if let reason = item.parseConflictReason {
+        Text(reason)
+          .font(.caption2)
+          .foregroundStyle(.orange)
+      }
+    }
   }
 }
 

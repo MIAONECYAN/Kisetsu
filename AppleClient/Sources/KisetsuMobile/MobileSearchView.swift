@@ -12,6 +12,7 @@ struct MobileSearchView: View {
   @State private var downloadDraft: MobileSearchDownloadDraft?
   @State private var preparingDownloadResultID: String?
   @State private var showingSubscriptionEditor = false
+  @State private var smartSubscriptionChoice: SmartSubscriptionChoice?
 
   var body: some View {
     List {
@@ -222,9 +223,10 @@ struct MobileSearchView: View {
         .environmentObject(store)
     }
     .sheet(isPresented: $showingSubscriptionEditor, onDismiss: {
+      smartSubscriptionChoice = nil
       Task { await store.runPendingMetadataRecognitionIfNeeded() }
     }) {
-      MobileSubscriptionEditorView()
+      MobileSubscriptionEditorView(smartChoice: smartSubscriptionChoice)
         .environmentObject(store)
     }
   }
@@ -269,11 +271,31 @@ struct MobileSearchView: View {
 
   private func smartSubscribe(_ result: SearchResult) {
     selectedResult = nil
+    let endpoint = store.backendURL
+    let revision = store.backendSessionRevision
     Task {
-      guard let response = await store.suggestSubscription(from: result),
-            let suggestion = response.suggestion else { return }
-      let fansubs = store.smartSubscriptionFansubs(for: result, among: store.searchResults)
-      store.prepareSubscriptionForm(from: response, suggestion: suggestion, result: result, availableFansubs: fansubs)
+      guard let response = await store.suggestSubscription(
+        from: result,
+        sitesOverride: Array(store.validSelectedSearchSiteIDs).sorted()
+      ),
+            let suggestion = response.suggestion,
+            store.backendURL == endpoint,
+            store.backendSessionRevision == revision else { return }
+      let candidates = response.matchedSubscription == nil
+        ? await store.smartSubscriptionCandidates(for: suggestion)
+        : []
+      guard let candidates, store.backendURL == endpoint, store.backendSessionRevision == revision else { return }
+      let choice = SmartSubscriptionChoice(
+        backendURL: endpoint,
+        backendRevision: revision,
+        response: response,
+        suggestion: suggestion,
+        result: result,
+        availableFansubs: store.smartSubscriptionFansubs(for: result, among: store.searchResults),
+        candidates: candidates
+      )
+      guard choice.prepare(in: store, existing: choice.initialExisting) else { return }
+      smartSubscriptionChoice = candidates.isEmpty ? nil : choice
       showingSubscriptionEditor = true
     }
   }

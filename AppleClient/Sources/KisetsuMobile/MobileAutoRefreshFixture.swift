@@ -8,6 +8,7 @@ actor MobileAutoRefreshFixture {
   private var failurePath: String?
   private var failureAfterWrite = false
   private var latency: Duration
+  private var mikanSettings = MikanProjectSettings()
 
   init(running: Bool = false, seconds: Int = 1800, latency: Duration = .zero, failStart: Bool = false) {
     self.running = running
@@ -39,6 +40,21 @@ actor MobileAutoRefreshFixture {
     if failing { failurePath = nil }
     if latency > .zero { try await Task.sleep(for: latency) }
     if failing && !afterWrite { throw URLError(.timedOut) }
+    if path == "/api/mikan-project/settings" {
+      if request.httpMethod == "PUT" {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        mikanSettings = try decoder.decode(MikanProjectSettings.self, from: request.httpBody ?? Data())
+      } else if request.httpMethod != "GET" {
+        throw URLError(.unsupportedURL)
+      }
+      let encoder = JSONEncoder()
+      encoder.keyEncodingStrategy = .convertToSnakeCase
+      guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+        throw URLError(.badServerResponse)
+      }
+      return (try encoder.encode(mikanSettings), response)
+    }
     switch (request.httpMethod, path) {
     case ("GET", "/api/automation/status"): break
     case ("PUT", "/api/automation/interval"), ("POST", "/api/automation/start"):

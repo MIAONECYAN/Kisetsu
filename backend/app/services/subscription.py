@@ -474,6 +474,45 @@ def filter_results_by_subscription_size(
     ]
 
 
+def subscription_with_matching_mikan_group(
+    subscription: Subscription, results: list[SearchResult]
+) -> Subscription:
+    if subscription.source_type != "mikan_bangumi" or not subscription.fansub:
+        return subscription
+    source = subscription.mikan_bangumi_url or subscription.source_url
+    pinned_id = _subscription_mikan_group_id(subscription)
+    bangumi_id = _subscription_mikan_bangumi_id(subscription)
+    if not source or not pinned_id or not bangumi_id:
+        return subscription
+
+    group_names: dict[str, set[str]] = {}
+    for result in results:
+        if (
+            result.source == "mikan"
+            and result.mikan_bangumi_id == bangumi_id
+            and result.mikan_group_id
+            and result.mikan_group_name
+        ):
+            group_names.setdefault(result.mikan_group_id, set()).add(result.mikan_group_name)
+
+    pinned_names = group_names.get(pinned_id)
+    if pinned_names and any(
+        fansub_matches(subscription.fansub, None, "", site_fansub=name) for name in pinned_names
+    ):
+        return subscription
+    matching_ids = {
+        group_id
+        for group_id, names in group_names.items()
+        if any(fansub_matches(subscription.fansub, None, "", site_fansub=name) for name in names)
+    }
+    if len(matching_ids) != 1:
+        return subscription
+
+    # Rebind for this match only; the stored source stays untouched until the user saves a correction.
+    resolved_source = urlparse(source)._replace(fragment=matching_ids.pop()).geturl()
+    return subscription.model_copy(update={"mikan_bangumi_url": resolved_source, "source_url": resolved_source})
+
+
 def match_results_with_diagnostics(
     store: Store,
     subscription: Subscription,
@@ -484,6 +523,7 @@ def match_results_with_diagnostics(
     diagnostics = MatchDiagnostics(total_fetched=len(results))
     excluded_samples: list[tuple[str, MatchDiagnosticSample]] = []
     subscription_bangumi_ids = _subscription_bangumi_ids(store, subscription)
+    effective_subscription = subscription_with_matching_mikan_group(subscription, results)
     seen_result_keys: set[str] = set()
 
     def increment(reason_key: str | None) -> None:
@@ -499,7 +539,7 @@ def match_results_with_diagnostics(
             continue
         seen_result_keys.add(result_key)
         is_match, reason_key, sample = analyze_match(
-            subscription,
+            effective_subscription,
             result,
             episode_parse_rules,
             subscription_bangumi_ids=subscription_bangumi_ids,

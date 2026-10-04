@@ -57,6 +57,8 @@ xcodebuild \
   -sdk iphoneos \
   -destination "generic/platform=iOS" \
   -derivedDataPath "$BUILD_DIR" \
+  OTHER_SWIFT_FLAGS="-file-prefix-map $ROOT_DIR=Kisetsu -file-prefix-map $HOME=/Users/example" \
+  OTHER_CFLAGS="-fdebug-prefix-map=$ROOT_DIR=Kisetsu -fdebug-prefix-map=$HOME=/Users/example" \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
   build
@@ -77,6 +79,9 @@ if [[ " $ARCHITECTURES " != *" arm64 "* ]]; then
   echo "错误：真机应用缺少 arm64 架构，当前为：$ARCHITECTURES" >&2
   exit 1
 fi
+
+# Release binaries should not expose absolute build paths through debug symbols.
+xcrun strip -S "$APP_BINARY"
 
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kisetsu-ipa.XXXXXX")"
 cleanup() {

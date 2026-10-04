@@ -517,6 +517,7 @@ private struct SubscriptionToolsPopover: View {
 
 private struct SubscriptionForm: View {
   @EnvironmentObject private var store: AppStore
+  var smartChoice: SmartSubscriptionChoice?
   @State private var showEpisodeRules = false
   @State private var showEpisodeRecognition = false
   @State private var showAdvancedMatching = false
@@ -568,6 +569,29 @@ private struct SubscriptionForm: View {
     VStack(alignment: .leading, spacing: 14) {
       Text(store.subscriptionEditorTitle)
         .font(.title3.bold())
+      if let smartChoice, !smartChoice.candidates.isEmpty {
+        VStack(alignment: .leading, spacing: 6) {
+          Picker("订阅目标", selection: Binding(
+            get: { store.editingSubscriptionID },
+            set: { selectedID in
+              _ = smartChoice.prepare(
+                in: store,
+                existing: smartChoice.candidates.first { $0.id == selectedID }
+              )
+            }
+          )) {
+            ForEach(smartChoice.candidates) { existing in
+              Text("更新 \(existing.name)\(existing.season.map { " · 第\($0)季" } ?? "")")
+                .tag(Optional(existing.id))
+            }
+            Text("另存为新订阅").tag(nil as Int?)
+          }
+          .disabled(store.isLoading)
+          Text("仅找到同名订阅，尚未确认是否为同一作品与季度；请核对目标和下方字段后再更新。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
 
       if let prefill = store.lastSmartPrefill {
         SmartPrefillSummaryView(prefill: prefill, isExpanded: $showAISmartPrefillSummary)
@@ -1102,12 +1126,13 @@ private struct EpisodeRuleTestResult: View {
 
 struct SubscriptionEditorSheet: View {
   @EnvironmentObject private var store: AppStore
+  var smartChoice: SmartSubscriptionChoice? = nil
   var close: () -> Void
 
   var body: some View {
     VStack(spacing: 0) {
       ScrollView {
-        SubscriptionForm(saved: close, cancelled: close)
+        SubscriptionForm(smartChoice: smartChoice, saved: close, cancelled: close)
           .padding(22)
           .frame(maxWidth: 620, alignment: .topLeading)
       }

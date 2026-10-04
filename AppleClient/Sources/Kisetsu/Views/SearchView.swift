@@ -4,6 +4,7 @@ import SwiftUI
 struct SearchView: View {
   @EnvironmentObject private var store: AppStore
   @State private var showingSubscriptionEditor = false
+  @State private var smartSubscriptionChoice: SmartSubscriptionChoice?
   @State private var showingSearchSettings = false
   @State private var showingSearchSites = false
   @State private var showingSearchHistory = false
@@ -144,12 +145,13 @@ struct SearchView: View {
       })
     }
     .sheet(isPresented: $showingSubscriptionEditor) {
-      SubscriptionEditorSheet {
+      SubscriptionEditorSheet(smartChoice: smartSubscriptionChoice) {
         showingSubscriptionEditor = false
       }
     }
     .onChange(of: showingSubscriptionEditor) { _, isShowing in
       guard !isShowing else { return }
+      smartSubscriptionChoice = nil
       Task { await store.runPendingMetadataRecognitionIfNeeded() }
     }
     .onChange(of: store.searchKeyword) { _, _ in
@@ -254,18 +256,30 @@ struct SearchView: View {
   }
 
   private func suggestSubscription(from result: SearchResult) {
+    let endpoint = store.backendURL
+    let revision = store.backendSessionRevision
     Task {
       if let response = await store.suggestSubscription(
         from: result,
         sitesOverride: Array(store.validSelectedSearchSiteIDs).sorted()
       ),
          let suggestion = response.suggestion {
-        store.prepareSubscriptionForm(
-          from: response,
+        guard store.backendURL == endpoint, store.backendSessionRevision == revision else { return }
+        let candidates = response.matchedSubscription == nil
+          ? await store.smartSubscriptionCandidates(for: suggestion)
+          : []
+        guard let candidates, store.backendURL == endpoint, store.backendSessionRevision == revision else { return }
+        let choice = SmartSubscriptionChoice(
+          backendURL: endpoint,
+          backendRevision: revision,
+          response: response,
           suggestion: suggestion,
           result: result,
-          availableFansubs: store.smartSubscriptionFansubs(for: result, among: store.searchResults)
+          availableFansubs: store.smartSubscriptionFansubs(for: result, among: store.searchResults),
+          candidates: candidates
         )
+        guard choice.prepare(in: store, existing: choice.initialExisting) else { return }
+        smartSubscriptionChoice = candidates.isEmpty ? nil : choice
         showingSubscriptionEditor = true
       }
     }

@@ -815,6 +815,30 @@ enum MobileDebugFixtureData {
       isGrayscale: false,
       statusText: "剧场版",
       resourceCount: 1
+    ),
+    MikanProjectAnime(
+      bangumiId: "fixture-mikan-empty",
+      title: "脱敏无资源番组",
+      originalTitle: "Fixture Empty Anime",
+      synopsis: "用于验证无资源海报的灰度状态。",
+      posterUrl: nil,
+      posterOriginalUrl: nil,
+      posterLocalUrl: nil,
+      posterPalette: nil,
+      detailUrl: nil,
+      updateDate: nil,
+      airDate: nil,
+      broadcastDay: "周一",
+      broadcastStart: nil,
+      totalEpisodes: nil,
+      officialUrl: nil,
+      bangumiUrl: nil,
+      bangumiSubjectId: nil,
+      section: .monday,
+      subscribed: true,
+      isGrayscale: true,
+      statusText: "此番组下暂无作品",
+      resourceCount: 0
     )
   ]
 
@@ -827,7 +851,7 @@ enum MobileDebugFixtureData {
     lastRefreshStartedAt: nil,
     settings: MikanProjectSettings(),
     sections: [
-      MikanProjectSection(id: .monday, name: "周一", shortName: "一", items: [mikanAnime[0]]),
+      MikanProjectSection(id: .monday, name: "周一", shortName: "一", items: [mikanAnime[0], mikanAnime[2]]),
       MikanProjectSection(id: .movie, name: "剧场版", shortName: "剧场版", items: [mikanAnime[1]])
     ],
     warnings: []

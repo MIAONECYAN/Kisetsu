@@ -89,6 +89,33 @@ private struct AIProviderDraft {
   var apiKeyMasked: String?
 }
 
+struct SmartSubscriptionChoice {
+  let backendURL: String
+  let backendRevision: UInt64
+  let response: SubscriptionSuggestionResponse
+  let suggestion: SubscriptionCreate
+  let result: SearchResult
+  let availableFansubs: [String]
+  let candidates: [Subscription]
+
+  var initialExisting: Subscription? {
+    candidates.count == 1 ? candidates.first : nil
+  }
+
+  @MainActor
+  func prepare(in store: AppStore, existing: Subscription? = nil) -> Bool {
+    guard store.backendURL == backendURL, store.backendSessionRevision == backendRevision else { return false }
+    store.prepareSubscriptionForm(
+      from: response,
+      suggestion: suggestion,
+      result: result,
+      availableFansubs: availableFansubs,
+      selectedExisting: existing
+    )
+    return true
+  }
+}
+
 @MainActor
 final class AppStore: ObservableObject {
   static let defaultBackendURL = "http://127.0.0.1:8000"
@@ -96,6 +123,7 @@ final class AppStore: ObservableObject {
   private let backendUserDefaults: UserDefaults
   @Published private(set) var backendURL: String
   private var backendRevision: UInt64 = 0
+  var backendSessionRevision: UInt64 { backendRevision }
   @Published var backendURLDraft: String
   @Published var healthText = "未知"
   @Published var backendConnectionDetail = "尚未检测。若站点管理为空或提示无法连接，请先启动后端。"
@@ -174,12 +202,14 @@ final class AppStore: ObservableObject {
   )
   @Published var searchSettings = SearchSettings(siteTimeoutSeconds: 15)
   @Published var mikanProjectSettings = MikanProjectSettings()
+  @Published private(set) var mikanProjectSettingsSubmitting = false
   @Published var mikanProjectSeason: MikanProjectSeasonResponse?
   @Published private(set) var mikanProjectSeasonLoading = false
   @Published private(set) var mikanProjectSeasonError: String?
   @Published var mikanProjectResources: [String: MikanProjectResourcesResponse] = [:]
   @Published var mikanProjectResourceLoadingIDs: Set<String> = []
   @Published var mikanProjectHideSubscribed = false
+  private var mikanProjectSettingsGeneration: UInt64 = 0
   @Published var searchDeduplicate: Bool {
     didSet { backendUserDefaults.set(searchDeduplicate, forKey: "searchDeduplicate") }
   }
@@ -226,6 +256,7 @@ final class AppStore: ObservableObject {
   @Published var lastWarningCount = 0
   @Published var lastSubscriptionSuggestion: SubscriptionSuggestionResponse?
   @Published private(set) var smartSubscriptionPreparingResultID: String?
+  private var smartSubscriptionRequestID: UUID?
   @Published private(set) var smartSubscriptionFansubOptions: [String] = []
   @Published private(set) var isSmartSubscriptionExistingMatch = false
   @Published var subscriptions: [Subscription] = []
@@ -242,6 +273,7 @@ final class AppStore: ObservableObject {
   @Published var refreshQueueRunning = false
   @Published var editingSubscriptionID: Int?
   @Published private(set) var editingSubscriptionVersion: String?
+  private var editingSubscriptionSourceSnapshot: (url: String, fansub: String?)?
   @Published var subscriptionName = ""
   @Published var subscriptionSourceType = "keyword"
   @Published var subscriptionIdentityKey: String?
@@ -406,7 +438,7 @@ final class AppStore: ObservableObject {
   #endif
   private var metadataBindingSubmissionGate = MetadataBindingSubmissionGate()
   private var activeOperationLabels: [UInt64: String] = [:]
-  private let mikanProjectSeasonLoad = PersistentSingleFlight()
+  private var mikanProjectSeasonLoad = PersistentSingleFlight()
   private let hadStoredSiteSelection: Bool
   private var hasStoredSearchSiteSelection: Bool
 
@@ -471,6 +503,7 @@ final class AppStore: ObservableObject {
 
   var subscriptionPrimaryActionTitle: String {
     if isSmartSubscriptionExistingMatch { return "更新订阅" }
+    if editingSubscriptionID == nil, lastSubscriptionSuggestion != nil { return "保存订阅" }
     return editingSubscriptionID == nil ? "创建订阅" : "保存订阅"
   }
 
@@ -661,6 +694,19 @@ final class AppStore: ObservableObject {
       subscriptionGroupSubmitting = false
       _ = subscriptionGroupLoadSequence.begin()
       schedulerStatus = nil
+      smartSubscriptionRequestID = nil
+      smartSubscriptionPreparingResultID = nil
+      resetSubscriptionForm(keepingKeyword: "")
+      mikanProjectSeason = nil
+      mikanProjectResources = [:]
+      mikanProjectSettings = MikanProjectSettings()
+      mikanProjectSettingsGeneration &+= 1
+      mikanProjectSettingsSubmitting = false
+      mikanProjectSeasonLoading = false
+      mikanProjectSeasonError = nil
+      mikanProjectResourceLoadingIDs = []
+      mikanProjectSeasonLoad = PersistentSingleFlight()
+      mikanProjectHideSubscribed = false
       pendingMetadataRecognitionSubscriptionID = nil
       pendingMetadataRecognitionBackendURL = nil
     }
@@ -687,6 +733,19 @@ final class AppStore: ObservableObject {
       subscriptionGroupSubmitting = false
       _ = subscriptionGroupLoadSequence.begin()
       schedulerStatus = nil
+      smartSubscriptionRequestID = nil
+      smartSubscriptionPreparingResultID = nil
+      resetSubscriptionForm(keepingKeyword: "")
+      mikanProjectSeason = nil
+      mikanProjectResources = [:]
+      mikanProjectSettings = MikanProjectSettings()
+      mikanProjectSettingsGeneration &+= 1
+      mikanProjectSettingsSubmitting = false
+      mikanProjectSeasonLoading = false
+      mikanProjectSeasonError = nil
+      mikanProjectResourceLoadingIDs = []
+      mikanProjectSeasonLoad = PersistentSingleFlight()
+      mikanProjectHideSubscribed = false
       pendingMetadataRecognitionSubscriptionID = nil
       pendingMetadataRecognitionBackendURL = nil
     }
@@ -1037,21 +1096,28 @@ final class AppStore: ObservableObject {
   }
 
   func loadMikanProjectSeason(silent: Bool = false) async {
-    let startsRequest = !mikanProjectSeasonLoad.isRunning
+    let flight = mikanProjectSeasonLoad
+    let endpoint = backendURL
+    let revision = backendRevision
+    let settingsGeneration = mikanProjectSettingsGeneration
+    let startsRequest = !flight.isRunning
     if startsRequest {
       mikanProjectSeasonLoading = true
       mikanProjectSeasonError = nil
     }
 
     let requestClient = client
-    await mikanProjectSeasonLoad.run { [weak self] in
+    await flight.run { [weak self] in
       guard let self else { return }
       await self.performMikanProjectSeasonRequest(
         silent: silent,
+        endpoint: endpoint,
+        revision: revision,
+        settingsGeneration: settingsGeneration,
         fetch: { try await requestClient.mikanProjectSeason() }
       )
     }
-    if !mikanProjectSeasonLoad.isRunning {
+    if backendURL == endpoint, backendRevision == revision, !flight.isRunning {
       mikanProjectSeasonLoading = false
     }
   }
@@ -1063,21 +1129,28 @@ final class AppStore: ObservableObject {
   }
 
   func refreshMikanProjectSeason() async {
-    let startsRequest = !mikanProjectSeasonLoad.isRunning
+    let flight = mikanProjectSeasonLoad
+    let endpoint = backendURL
+    let revision = backendRevision
+    let settingsGeneration = mikanProjectSettingsGeneration
+    let startsRequest = !flight.isRunning
     if startsRequest {
       mikanProjectSeasonLoading = true
       mikanProjectSeasonError = nil
     }
 
     let requestClient = client
-    await mikanProjectSeasonLoad.run { [weak self] in
+    await flight.run { [weak self] in
       guard let self else { return }
       await self.performMikanProjectSeasonRequest(
         silent: false,
+        endpoint: endpoint,
+        revision: revision,
+        settingsGeneration: settingsGeneration,
         fetch: { try await requestClient.refreshMikanProjectSeason() }
       )
     }
-    if !mikanProjectSeasonLoad.isRunning {
+    if backendURL == endpoint, backendRevision == revision, !flight.isRunning {
       mikanProjectSeasonLoading = false
     }
   }
@@ -1090,12 +1163,18 @@ final class AppStore: ObservableObject {
 
   private func performMikanProjectSeasonRequest(
     silent: Bool,
+    endpoint: String,
+    revision: UInt64,
+    settingsGeneration: UInt64,
     fetch: @escaping @MainActor @Sendable () async throws -> MikanProjectSeasonResponse
   ) async {
     do {
       let response = try await fetch()
+      guard backendURL == endpoint, backendRevision == revision else { return }
       mikanProjectSeason = response
-      mikanProjectSettings = response.settings
+      if mikanProjectSettingsGeneration == settingsGeneration, !mikanProjectSettingsSubmitting {
+        mikanProjectSettings = response.settings
+      }
       mikanProjectSeasonError = nil
       if !silent {
         response.warnings.forEach { appendLog($0) }
@@ -1103,6 +1182,7 @@ final class AppStore: ObservableObject {
     } catch where APIClient.isCancellation(error) {
       return
     } catch {
+      guard backendURL == endpoint, backendRevision == revision else { return }
       let message = error.localizedDescription
       mikanProjectSeasonError = message
       appendLog("加载 Mikan Project 失败：\(message)")
@@ -1116,16 +1196,51 @@ final class AppStore: ObservableObject {
     }
   }
 
-  func loadMikanProjectResources(for anime: MikanProjectAnime) async {
-    mikanProjectResourceLoadingIDs.insert(anime.bangumiId)
-    defer { mikanProjectResourceLoadingIDs.remove(anime.bangumiId) }
+  func setMikanProjectAutoRefreshEnabled(_ enabled: Bool) async {
+    guard !mikanProjectSettingsSubmitting else { return }
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestClient = client
+    var requested = mikanProjectSettings
+    requested.autoRefreshEnabled = enabled
+    mikanProjectSettingsGeneration &+= 1
+    mikanProjectSettingsSubmitting = true
+    defer {
+      if backendURL == endpoint, backendRevision == revision {
+        mikanProjectSettingsSubmitting = false
+      }
+    }
     do {
-      let response = try await client.mikanProjectResources(bangumiID: anime.bangumiId)
+      let saved = try await requestClient.saveMikanProjectSettings(requested)
+      guard backendURL == endpoint, backendRevision == revision else { return }
+      mikanProjectSettings = saved
+    } catch where APIClient.isCancellation(error) {
+      return
+    } catch {
+      guard backendURL == endpoint, backendRevision == revision else { return }
+      setStatus(.failed, title: "保存自动刷新设置失败", detail: error.localizedDescription)
+    }
+  }
+
+  func loadMikanProjectResources(for anime: MikanProjectAnime) async {
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestClient = client
+    mikanProjectResourceLoadingIDs.insert(anime.bangumiId)
+    defer {
+      if backendURL == endpoint, backendRevision == revision {
+        mikanProjectResourceLoadingIDs.remove(anime.bangumiId)
+      }
+    }
+    do {
+      let response = try await requestClient.mikanProjectResources(bangumiID: anime.bangumiId)
+      guard backendURL == endpoint, backendRevision == revision else { return }
       mikanProjectResources[anime.bangumiId] = response
       response.warnings.forEach { appendLog($0) }
     } catch where APIClient.isCancellation(error) {
       return
     } catch {
+      guard backendURL == endpoint, backendRevision == revision else { return }
       setStatus(.failed, title: "资源加载失败", detail: error.localizedDescription)
       appendLog("Mikan Project 资源加载失败：\(error.localizedDescription)")
     }
@@ -2383,7 +2498,17 @@ final class AppStore: ObservableObject {
       return nil
     }
     smartSubscriptionPreparingResultID = result.id
-    defer { smartSubscriptionPreparingResultID = nil }
+    let requestID = UUID()
+    smartSubscriptionRequestID = requestID
+    defer {
+      if smartSubscriptionRequestID == requestID {
+        smartSubscriptionRequestID = nil
+        smartSubscriptionPreparingResultID = nil
+      }
+    }
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestClient = client
     var output: SubscriptionSuggestionResponse?
     await run(
       "检查智能订阅",
@@ -2391,7 +2516,7 @@ final class AppStore: ObservableObject {
       successTitle: "智能订阅已就绪",
       successDetail: { self.lastSubscriptionSuggestion?.message ?? "请确认订阅信息" }
     ) {
-      let prefill = try await client.smartSubscriptionPrefill(
+      let prefill = try await requestClient.smartSubscriptionPrefill(
         result: result,
         sites: Array(suggestionSiteIDs).sorted(),
         organizeTargetID: defaultOrganizeTarget?.id,
@@ -2400,9 +2525,13 @@ final class AppStore: ObservableObject {
         tags: subscriptionDownloaderTags,
         useAI: nil
       )
+      guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
       let response = prefill.asSuggestionResponse
       if !response.ok || response.suggestion == nil {
         throw AppStoreError.userFacing(response.message)
+      }
+      if response.matchStatus == "matched", response.matchedSubscription == nil {
+        throw AppStoreError.userFacing("后端未返回已匹配的订阅详情，请刷新订阅后重试，避免重复创建。")
       }
       lastSmartPrefill = prefill
       lastSubscriptionSuggestion = response
@@ -2413,12 +2542,46 @@ final class AppStore: ObservableObject {
     return output
   }
 
+  func smartSubscriptionCandidates(for suggestion: SubscriptionCreate) async -> [Subscription]? {
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestClient = client
+    do {
+      let current = try await requestClient.subscriptions()
+      guard backendURL == endpoint, backendRevision == revision else { return nil }
+      let titles = Self.smartCandidateTitles([suggestion.name, suggestion.keyword] + suggestion.aliases)
+      guard !titles.isEmpty else { return [] }
+      return current.filter { subscription in
+        (suggestion.season == nil || subscription.season == suggestion.season)
+          && !Self.smartCandidateTitles(
+            [subscription.name, subscription.keyword] + subscription.aliases + (subscription.metadataTitles ?? [])
+          ).isDisjoint(with: titles)
+      }
+      .sorted { $0.id < $1.id }
+    } catch where APIClient.isCancellation(error) {
+      return nil
+    } catch {
+      guard backendURL == endpoint, backendRevision == revision else { return nil }
+      setStatus(.failed, title: "无法核对现有订阅", detail: error.localizedDescription)
+      return nil
+    }
+  }
+
+  private static func smartCandidateTitles(_ values: [String]) -> Set<String> {
+    Set(values.map {
+      $0.folding(options: [.caseInsensitive, .widthInsensitive], locale: .current)
+        .split(whereSeparator: \.isWhitespace)
+        .joined()
+    }.filter { !$0.isEmpty })
+  }
+
   func prepareSubscriptionForm(
     from response: SubscriptionSuggestionResponse,
     suggestion: SubscriptionCreate,
     result: SearchResult,
     mikanBangumiURL: String? = nil,
-    availableFansubs: [String] = []
+    availableFansubs: [String] = [],
+    selectedExisting: Subscription? = nil
   ) {
     let discoveredFansubs = mergedSmartSubscriptionFansubs(
       availableFansubs.map(Optional.some),
@@ -2429,17 +2592,21 @@ final class AppStore: ObservableObject {
         response.matchedSubscription?.fansub,
       ]
     )
-    if let existing = response.matchedSubscription {
+    if let existing = response.matchedSubscription ?? selectedExisting {
+      let preservesSourceIdentity = response.matchedSubscription == nil
       let smartPrefill = lastSmartPrefill
       editSubscription(existing)
       lastSmartPrefill = smartPrefill
-      subscriptionIdentityKey = response.identityKey ?? suggestion.identityKey ?? existing.identityKey
+      subscriptionIdentityKey = preservesSourceIdentity
+        ? existing.identityKey
+        : (response.identityKey ?? suggestion.identityKey ?? existing.identityKey)
       editingSubscriptionVersion = existing.updatedAt ?? existing.createdAt
       smartSubscriptionFansubOptions = discoveredFansubs
       applySmartRecognitionSuggestion(
         suggestion,
         result: result,
-        mikanBangumiURL: mikanBangumiURL
+        mikanBangumiURL: mikanBangumiURL,
+        preserveSourceIdentity: preservesSourceIdentity
       )
       isSmartSubscriptionExistingMatch = true
       lastSubscriptionSuggestion = response
@@ -2448,6 +2615,7 @@ final class AppStore: ObservableObject {
     }
     editingSubscriptionID = nil
     editingSubscriptionVersion = nil
+    editingSubscriptionSourceSnapshot = nil
     subscriptionIdentityKey = response.identityKey ?? suggestion.identityKey
     smartSubscriptionFansubOptions = discoveredFansubs
     isSmartSubscriptionExistingMatch = false
@@ -2521,15 +2689,16 @@ final class AppStore: ObservableObject {
   private func applySmartRecognitionSuggestion(
     _ suggestion: SubscriptionCreate,
     result: SearchResult,
-    mikanBangumiURL: String?
+    mikanBangumiURL: String?,
+    preserveSourceIdentity: Bool
   ) {
-    if let name = nonEmptySmartSuggestionValue(suggestion.name) {
+    if !preserveSourceIdentity, let name = nonEmptySmartSuggestionValue(suggestion.name) {
       subscriptionName = name
     }
-    if let keyword = nonEmptySmartSuggestionValue(suggestion.keyword) {
+    if !preserveSourceIdentity, let keyword = nonEmptySmartSuggestionValue(suggestion.keyword) {
       subscriptionKeyword = keyword
     }
-    if !suggestion.aliases.isEmpty {
+    if !preserveSourceIdentity, !suggestion.aliases.isEmpty {
       subscriptionAliases = suggestion.aliases.joined(separator: ", ")
     }
 
@@ -2541,20 +2710,30 @@ final class AppStore: ObservableObject {
       ?? nonEmptySmartSuggestionValue(suggestion.mikanBangumiUrl)
       ?? nonEmptySmartSuggestionValue(suggestion.sourceUrl)
       ?? resultMikanURL
-    if let suggestedSourceURL {
+    if !preserveSourceIdentity, let suggestedSourceURL {
       subscriptionSourceURL = suggestedSourceURL
     }
-    if suggestedSourceURL?.contains("/Home/Bangumi/") == true || suggestion.sourceType == "mikan_bangumi" {
-      subscriptionSourceType = "mikan_bangumi"
-    } else if nonEmptySmartSuggestionValue(suggestion.sourceType) != nil {
-      subscriptionSourceType = Self.validSubscriptionSourceType(suggestion.sourceType)
+    if !preserveSourceIdentity {
+      if suggestedSourceURL?.contains("/Home/Bangumi/") == true || suggestion.sourceType == "mikan_bangumi" {
+        subscriptionSourceType = "mikan_bangumi"
+      } else if nonEmptySmartSuggestionValue(suggestion.sourceType) != nil,
+                !(subscriptionSourceType == "mikan_bangumi" && suggestion.sourceType == "keyword") {
+        subscriptionSourceType = Self.validSubscriptionSourceType(suggestion.sourceType)
+      }
     }
-
     let latestFansub = nonEmptySmartSuggestionValue(result.mikanGroupName)
       ?? nonEmptySmartSuggestionValue(result.parsedFansub)
       ?? nonEmptySmartSuggestionValue(suggestion.fansub)
     if let latestFansub {
       subscriptionFansub = latestFansub
+    }
+    if subscriptionSourceType == "mikan_bangumi",
+       let updatedSourceURL = Self.mikanSourceURL(
+         subscriptionSourceURL,
+         selecting: result,
+         filteredByFansub: latestFansub != nil
+       ) {
+      subscriptionSourceURL = updatedSourceURL
     }
     if let includeKeywords = authoritativeSmartPrefillIncludeKeywords() {
       subscriptionIncludeKeywords = includeKeywords.joined(separator: ", ")
@@ -2585,6 +2764,41 @@ final class AppStore: ObservableObject {
       subscriptionTotalEpisodesBaseline = totalEpisodes
       subscriptionMetadataEpisodeCount = suggestion.metadataEpisodeCount
     }
+  }
+
+  static func mikanSourceURL(
+    _ sourceURL: String,
+    selecting result: SearchResult,
+    filteredByFansub: Bool = false
+  ) -> String? {
+    guard result.source.caseInsensitiveCompare("mikan") == .orderedSame,
+          var components = URLComponents(string: sourceURL),
+          ["mikanani.me", "www.mikanani.me"].contains(components.host?.lowercased() ?? "") else {
+      return nil
+    }
+    let parts = components.path.split(separator: "/")
+    guard parts.count == 3,
+          String(parts[0]).caseInsensitiveCompare("Home") == .orderedSame,
+          String(parts[1]).caseInsensitiveCompare("Bangumi") == .orderedSame,
+          parts[2].allSatisfy({ $0 >= "0" && $0 <= "9" }) else {
+      return nil
+    }
+    if let bangumiID = result.mikanBangumiId ?? result.bangumiId,
+       parts[2] != Substring(bangumiID) {
+      return nil
+    }
+    if let groupID = result.mikanGroupId,
+       !groupID.isEmpty,
+       groupID.allSatisfy({ $0 >= "0" && $0 <= "9" }) {
+      components.fragment = groupID
+    } else if filteredByFansub,
+              let oldGroupID = components.fragment,
+              oldGroupID.allSatisfy({ $0 >= "0" && $0 <= "9" }) {
+      components.fragment = nil
+    } else {
+      return nil
+    }
+    return components.string
   }
 
   private func applySmartSuggestionResolution(
@@ -2776,21 +2990,26 @@ final class AppStore: ObservableObject {
       return false
     }
     if let id = editingSubscriptionID {
+      let endpoint = backendURL
+      let revision = backendRevision
+      let requestClient = client
       return await run("更新订阅", successTitle: "订阅已更新", successDetail: { payload.name }) {
-        let updated = try await client.updateSubscription(
+        let updated = try await requestClient.updateSubscription(
           id: id,
           payload,
           expectedUpdatedAt: editingSubscriptionVersion
         )
+        guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
         try validateSubscriptionSizePersistence(payload: payload, persisted: updated)
         await loadSubscriptions()
       }
     } else {
       let endpoint = backendURL
+      let revision = backendRevision
       let requestClient = client
       return await run("创建订阅", successTitle: "订阅已创建", successDetail: { payload.name }) {
         let created = try await requestClient.createSubscription(payload)
-        guard self.backendURL == endpoint else { throw CancellationError() }
+        guard self.backendURL == endpoint, self.backendRevision == revision else { throw CancellationError() }
         try validateSubscriptionSizePersistence(payload: payload, persisted: created)
         if initialMetadataQuery(for: created) != nil {
           pendingMetadataRecognitionSubscriptionID = created.id
@@ -2820,6 +3039,10 @@ final class AppStore: ObservableObject {
   func editSubscription(_ subscription: Subscription) {
     editingSubscriptionID = subscription.id
     editingSubscriptionVersion = subscription.updatedAt ?? subscription.createdAt
+    editingSubscriptionSourceSnapshot = (
+      subscription.mikanBangumiUrl ?? subscription.sourceUrl ?? "",
+      subscription.fansub
+    )
     subscriptionIdentityKey = subscription.identityKey
     isSmartSubscriptionExistingMatch = false
     smartSubscriptionFansubOptions = []
@@ -5259,6 +5482,21 @@ final class AppStore: ObservableObject {
     let resolutionPreset: String?
     let resolutionCustom: String?
     let legacyResolution: String?
+    var sourceURL = subscriptionSourceURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    if subscriptionSourceType == "mikan_bangumi",
+       let original = editingSubscriptionSourceSnapshot,
+       sourceURL == original.url,
+       subscriptionFansub.trimmingCharacters(in: .whitespacesAndNewlines)
+         != (original.fansub ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+       var components = URLComponents(string: sourceURL),
+       ["mikanani.me", "www.mikanani.me"].contains(components.host?.lowercased() ?? ""),
+       components.path.range(of: #"^/Home/Bangumi/\d+$"#, options: .regularExpression) != nil,
+       let groupID = components.fragment,
+       !groupID.isEmpty,
+       groupID.allSatisfy({ $0 >= "0" && $0 <= "9" }) {
+      components.fragment = nil
+      sourceURL = components.string ?? sourceURL
+    }
     if resolutionChoice == "custom" {
       if customResolution.isEmpty {
         resolutionMode = "any"
@@ -5291,8 +5529,8 @@ final class AppStore: ObservableObject {
       sourceType: subscriptionSourceType,
       identityKey: subscriptionIdentityKey,
       sites: Array(selectedSiteIDs).sorted(),
-      sourceUrl: subscriptionSourceType == "mikan_bangumi" ? nilIfEmpty(subscriptionSourceURL) : nil,
-      mikanBangumiUrl: subscriptionSourceType == "mikan_bangumi" ? nilIfEmpty(subscriptionSourceURL) : nil,
+      sourceUrl: subscriptionSourceType == "mikan_bangumi" ? nilIfEmpty(sourceURL) : nil,
+      mikanBangumiUrl: subscriptionSourceType == "mikan_bangumi" ? nilIfEmpty(sourceURL) : nil,
       aliases: splitComma(subscriptionAliases),
       rssUrls: subscriptionSourceType == "rss" ? splitLines(subscriptionRSSURLs) : [],
       regex: nilIfEmpty(subscriptionRegex),
@@ -5435,6 +5673,7 @@ final class AppStore: ObservableObject {
   private func resetSubscriptionForm(keepingKeyword keyword: String) {
     editingSubscriptionID = nil
     editingSubscriptionVersion = nil
+    editingSubscriptionSourceSnapshot = nil
     subscriptionIdentityKey = nil
     isSmartSubscriptionExistingMatch = false
     smartSubscriptionFansubOptions = []

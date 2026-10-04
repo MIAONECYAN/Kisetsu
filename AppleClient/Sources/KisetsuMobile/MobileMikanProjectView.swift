@@ -1,8 +1,14 @@
+import Combine
 import SwiftUI
 
 struct MobileMikanProjectView: View {
   @EnvironmentObject private var store: AppStore
+  @Environment(\.scenePhase) private var scenePhase
   @State private var selection = MikanProjectSectionKind.monday
+  @State private var lastAutoRefreshCheck = Date.distantPast
+  @State private var isVisible = false
+
+  private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
   private var selectedSection: MikanProjectSection? {
     store.mikanProjectSeason?.visibleSections.first(where: { $0.id == selection })
@@ -22,7 +28,7 @@ struct MobileMikanProjectView: View {
         }
         .listRowBackground(Color.clear)
 
-        ForEach(selectedSection?.items ?? []) { anime in
+        ForEach(visibleAnime) { anime in
           NavigationLink {
             MobileMikanAnimeDetailView(anime: anime)
           } label: {
@@ -47,6 +53,14 @@ struct MobileMikanProjectView: View {
             .padding(.vertical, 3)
           }
         }
+        if visibleAnime.isEmpty {
+          ContentUnavailableView(
+            store.mikanProjectHideSubscribed ? "没有未订阅的番组" : "暂无番组",
+            systemImage: "calendar"
+          )
+          .frame(maxWidth: .infinity, minHeight: 220)
+          .listRowBackground(Color.clear)
+        }
       } else if store.mikanProjectSeasonLoading {
         ProgressView("正在读取 Mikan Project")
           .frame(maxWidth: .infinity, minHeight: 360)
@@ -66,6 +80,21 @@ struct MobileMikanProjectView: View {
     .mobileStatusNavigationTitle("Mikan Project")
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
+        Menu {
+          Toggle("自动刷新", isOn: Binding(
+            get: { store.mikanProjectSettings.autoRefreshEnabled },
+            set: { enabled in
+              Task { await store.setMikanProjectAutoRefreshEnabled(enabled) }
+            }
+          ))
+          .disabled(store.mikanProjectSettingsSubmitting || store.mikanProjectSeason == nil)
+
+          Toggle("隐藏已订阅", isOn: $store.mikanProjectHideSubscribed)
+        } label: {
+          Label("更多选项", systemImage: "ellipsis")
+        }
+      }
+      ToolbarItem(placement: .topBarTrailing) {
         MobileToolbarRefreshButton(target: .mikan, isRefreshing: store.mikanProjectSeasonLoading) {
           guard MobileDebugConfiguration.shouldLoadNetworkAtRuntime else { return }
           await store.refreshMikanProjectSeason()
@@ -76,12 +105,31 @@ struct MobileMikanProjectView: View {
       guard MobileDebugConfiguration.shouldLoadNetworkAtRuntime else { return }
       await store.refreshMikanProjectSeason()
     }
-    .task {
+    .task(id: store.backendURL) {
       guard MobileDebugConfiguration.shouldLoadNetworkAtRuntime else { return }
       await store.loadMikanProjectSeason(silent: true)
       synchronizeSelection()
     }
+    .onAppear { isVisible = true }
+    .onDisappear { isVisible = false }
     .onChange(of: store.mikanProjectSeason) { _, _ in synchronizeSelection() }
+    .onChange(of: store.backendURL) { _, _ in lastAutoRefreshCheck = .distantPast }
+    .onReceive(timer) { _ in
+      guard isVisible,
+            scenePhase == .active,
+            store.mikanProjectSettings.autoRefreshEnabled,
+            store.mikanProjectSeason != nil,
+            !store.mikanProjectSeasonLoading,
+            Date().timeIntervalSince(lastAutoRefreshCheck) > Double(store.mikanProjectSettings.refreshIntervalHours * 3600),
+            MobileDebugConfiguration.shouldLoadNetworkAtRuntime else { return }
+      lastAutoRefreshCheck = Date()
+      store.startMikanProjectSeasonLoad(silent: true)
+    }
+  }
+
+  private var visibleAnime: [MikanProjectAnime] {
+    let items = selectedSection?.items ?? []
+    return store.mikanProjectHideSubscribed ? items.filter { !$0.subscribed } : items
   }
 
   private func synchronizeSelection() {
@@ -212,9 +260,11 @@ private struct MobileMikanAnimeDetailView: View {
   }
 
   private func smartSubscribe(_ result: SearchResult, group: MikanProjectResourceGroup) {
+    let endpoint = store.backendURL
     Task {
-      guard let response = await store.suggestSubscription(from: result),
-            let suggestion = response.suggestion else { return }
+      guard let response = await store.suggestSubscription(from: result, sitesOverride: ["mikan"]),
+            let suggestion = response.suggestion,
+            store.backendURL == endpoint else { return }
       let url = anime.detailUrl ?? anime.bangumiUrl
       store.prepareSubscriptionForm(
         from: response,
@@ -240,6 +290,8 @@ private struct MobileMikanPoster: View {
       width: width,
       height: height
     )
+    .saturation(anime.isGrayscale ? 0 : 1)
+    .contrast(anime.isGrayscale ? 0.92 : 1)
     .overlay(alignment: .topLeading) {
       if anime.subscribed {
         Text(MobileMikanPresentation.subscribedMarkerTitle)

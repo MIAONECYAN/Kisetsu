@@ -10,6 +10,7 @@ import re
 import sqlite3
 from pathlib import Path
 from pathlib import PurePosixPath
+from urllib.parse import urlparse
 
 import httpx
 
@@ -46,7 +47,15 @@ from app.services.episode_fulfillment import (
 from app.services.managed_directories import subscription_download_directory
 from app.services.search import search_multi_site
 from app.services.search_result_analysis import analyze_search_result, is_collection_parsed
-from app.services.subscription import btih_hash_from_url, dedupe_results, fingerprint_result, match_results_with_diagnostics, record_processed, should_auto_download
+from app.services.subscription import (
+    btih_hash_from_url,
+    dedupe_results,
+    fansub_matches,
+    fingerprint_result,
+    match_results_with_diagnostics,
+    record_processed,
+    should_auto_download,
+)
 from app.services.title_parser import parse_title
 from app.sites import describe_site_error, get_site_adapter, site_usage_restriction
 from app.sites.rate_limiter import drain_rate_limit_events
@@ -478,6 +487,45 @@ async def fetch_subscription_results(
                     respect_site_enabled=False,
                     site_purpose="subscription",
                 )
+                # A saved group fragment can outlive a changed fansub; inspect all groups when it is stale or empty.
+                pinned_group_id = urlparse(mikan_source).fragment
+                pinned_group_results = [
+                    item for item in page_results if item.mikan_group_id == pinned_group_id
+                ]
+                if (
+                    pinned_group_id.isdigit()
+                    and subscription.fansub
+                    and (
+                        not pinned_group_results
+                        or (
+                            all(item.mikan_group_name for item in pinned_group_results)
+                            and not any(
+                                fansub_matches(subscription.fansub, None, "", site_fansub=item.mikan_group_name)
+                                for item in pinned_group_results
+                            )
+                        )
+                    )
+                ):
+                    unpinned_source = urlparse(mikan_source)._replace(fragment="").geturl()
+                    try:
+                        all_results, all_warnings, all_diagnostics = await search_multi_site(
+                            unpinned_source,
+                            ["mikan"],
+                            max_pages=1,
+                            page_size=100,
+                            site_settings=site_settings,
+                            timeout_seconds=timeout_seconds,
+                            respect_site_enabled=False,
+                            site_purpose="subscription",
+                        )
+                    except Exception as exc:
+                        warnings.append(f"Mikan 完整番组页核对失败，已保留原分组结果：{describe_site_error(exc)}")
+                    else:
+                        if all_results and not any(item.error for item in all_diagnostics.site_diagnostics):
+                            page_results = all_results
+                            search_diagnostics = all_diagnostics
+                            warnings.append("Mikan 来源分组与订阅字幕组不一致，已读取完整番组页核对；原订阅设置未修改。")
+                        search_warnings.extend(all_warnings)
                 results.extend(page_results)
                 return results, [*warnings, *search_warnings], search_diagnostics
         except Exception as exc:

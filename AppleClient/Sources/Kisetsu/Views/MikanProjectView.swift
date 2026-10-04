@@ -210,9 +210,11 @@ struct MikanProjectView: View {
           selectedAnime = nil
         },
         suggestSubscription: { result in
+          let endpoint = store.backendURL
           Task {
             if let response = await store.suggestSubscription(from: result, sitesOverride: ["mikan"]),
-               let suggestion = response.suggestion {
+               let suggestion = response.suggestion,
+               store.backendURL == endpoint {
               let currentAnime = store.mikanProjectResources[anime.bangumiId]?.anime ?? anime
               store.prepareSubscriptionForm(
                 from: response,
