@@ -1,5 +1,15 @@
 import Combine
+import SafariServices
 import SwiftUI
+
+enum MikanProjectBrowserMode: String {
+  case inApp
+  case external
+
+  init(storedValue: String) {
+    self = Self(rawValue: storedValue) ?? .inApp
+  }
+}
 
 struct MobileMikanProjectView: View {
   @EnvironmentObject private var store: AppStore
@@ -7,6 +17,7 @@ struct MobileMikanProjectView: View {
   @State private var selection = MikanProjectSectionKind.monday
   @State private var lastAutoRefreshCheck = Date.distantPast
   @State private var isVisible = false
+  @AppStorage("mikanProjectBrowserMode") private var browserMode = MikanProjectBrowserMode.inApp.rawValue
 
   private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
@@ -90,6 +101,16 @@ struct MobileMikanProjectView: View {
           .disabled(store.mikanProjectSettingsSubmitting || store.mikanProjectSeason == nil)
 
           Toggle("隐藏已订阅", isOn: $store.mikanProjectHideSubscribed)
+
+          Divider()
+          Toggle("内置 Safari 视图", isOn: Binding(
+            get: { MikanProjectBrowserMode(storedValue: browserMode) == .inApp },
+            set: { if $0 { browserMode = MikanProjectBrowserMode.inApp.rawValue } }
+          ))
+          Toggle("外部浏览器", isOn: Binding(
+            get: { MikanProjectBrowserMode(storedValue: browserMode) == .external },
+            set: { if $0 { browserMode = MikanProjectBrowserMode.external.rawValue } }
+          ))
         } label: {
           Label("更多选项", systemImage: "ellipsis")
         }
@@ -142,25 +163,34 @@ struct MobileMikanProjectView: View {
 
 private struct MobileMikanAnimeDetailView: View {
   @EnvironmentObject private var store: AppStore
+  @Environment(\.openURL) private var openURL
+  @AppStorage("mikanProjectBrowserMode") private var browserMode = MikanProjectBrowserMode.inApp.rawValue
   var anime: MikanProjectAnime
   @State private var pendingDownload: SearchResult?
   @State private var showingSubscriptionEditor = false
   @State private var selectedFansubID: String?
+  @State private var presentedWebPage: MikanProjectWebPage?
 
   private var resources: MikanProjectResourcesResponse? {
     store.mikanProjectResources[anime.bangumiId]
   }
 
+  private var displayAnime: MikanProjectAnime { resources?.anime ?? anime }
+
   var body: some View {
     List {
       Section {
-        HStack(alignment: .top, spacing: 16) {
-          MobileMikanPoster(anime: anime, width: 96, height: 138, store: store)
-          VStack(alignment: .leading, spacing: 7) {
-            Text(anime.title).font(.title3.weight(.semibold))
-            if let original = anime.originalTitle { Text(original).font(.subheadline).foregroundStyle(.secondary) }
-            if let date = anime.airDate { Label(date, systemImage: "calendar").font(.caption).foregroundStyle(.secondary) }
+        VStack(alignment: .leading, spacing: 8) {
+          HStack(alignment: .top, spacing: 16) {
+            MobileMikanPoster(anime: anime, width: 96, height: 138, store: store)
+            VStack(alignment: .leading, spacing: 7) {
+              Text(anime.title).font(.title3.weight(.semibold))
+              if let original = anime.originalTitle { Text(original).font(.subheadline).foregroundStyle(.secondary) }
+              if let date = anime.airDate { Label(date, systemImage: "calendar").font(.caption).foregroundStyle(.secondary) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
           }
+          webLinks
         }
         if let synopsis = anime.synopsis, !synopsis.isEmpty {
           Text(synopsis).font(.subheadline).foregroundStyle(.secondary)
@@ -201,6 +231,15 @@ private struct MobileMikanAnimeDetailView: View {
                   .accessibilityLabel("智能订阅")
                   .accessibilityHint("根据此资源准备订阅表单")
                   Spacer()
+                  if let resourceURL = MikanProjectWebLinks.resourceURL(result, for: displayAnime) {
+                    Button("Mikan Project", systemImage: "link") { openWebPage(resourceURL) }
+                      .labelStyle(.iconOnly)
+                      .buttonStyle(.glass)
+                      .controlSize(MobileMikanPresentation.resourceActionControlSize)
+                      .frame(width: 44, height: 44)
+                      .contentShape(Rectangle())
+                      .accessibilityHint("打开此资源的 Mikan Project 页面")
+                  }
                   Button("下载", systemImage: "arrow.down.circle") { pendingDownload = result }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.glass)
@@ -241,6 +280,9 @@ private struct MobileMikanAnimeDetailView: View {
       MobileMetadataReviewSheet()
         .environmentObject(store)
     }
+    .sheet(item: $presentedWebPage) { page in
+      MikanProjectSafariView(url: page.url)
+    }
     .sheet(isPresented: $showingSubscriptionEditor, onDismiss: {
       Task { await store.runPendingMetadataRecognitionIfNeeded() }
     }) {
@@ -265,6 +307,46 @@ private struct MobileMikanAnimeDetailView: View {
     MobileMikanPresentation.filteredGroups(resources.groups, selectedID: selectedFansubID)
   }
 
+  @ViewBuilder
+  private var webLinks: some View {
+    let links = MikanProjectWebLinks(anime: displayAnime)
+    if !links.isEmpty {
+      HStack(spacing: 0) {
+        if let official = links.official { webLink("官方网站", systemImage: "safari", url: official) }
+        if let bangumi = links.bangumi { webLink("Bangumi 番组计划", systemImage: "book", url: bangumi) }
+        if let mikan = links.mikan { webLink("Mikan Project", systemImage: "link", url: mikan) }
+      }
+      .frame(maxWidth: .infinity)
+    }
+  }
+
+  private func webLink(_ title: String, systemImage: String, url: URL) -> some View {
+    Button {
+      openWebPage(url)
+    } label: {
+      HStack(spacing: 4) {
+        Image(systemName: systemImage)
+        Text(title).lineLimit(1).minimumScaleFactor(0.8)
+      }
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+      .frame(maxWidth: .infinity, minHeight: 44)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .frame(maxWidth: .infinity)
+    .accessibilityLabel(title)
+    .accessibilityHint("打开网页")
+  }
+
+  private func openWebPage(_ url: URL) {
+    if MikanProjectBrowserMode(storedValue: browserMode) == .external {
+      openURL(url)
+    } else {
+      presentedWebPage = MikanProjectWebPage(url: url)
+    }
+  }
+
   private func smartSubscribe(_ result: SearchResult, group: MikanProjectResourceGroup) {
     let endpoint = store.backendURL
     Task {
@@ -284,6 +366,21 @@ private struct MobileMikanAnimeDetailView: View {
       showingSubscriptionEditor = true
     }
   }
+}
+
+private struct MikanProjectWebPage: Identifiable {
+  let id = UUID()
+  let url: URL
+}
+
+private struct MikanProjectSafariView: UIViewControllerRepresentable {
+  let url: URL
+
+  func makeUIViewController(context: Context) -> SFSafariViewController {
+    SFSafariViewController(url: url)
+  }
+
+  func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
 
 private struct MobileMikanPoster: View {

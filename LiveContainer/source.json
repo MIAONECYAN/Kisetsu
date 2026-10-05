@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.2",
-          "buildVersion": "3",
-          "date": "2026-10-04T17:57:26Z",
-          "localizedDescription": "修复从 iPhone 的 Mikan Project 新建订阅后，番组信息识别窗口未自动打开的问题；首次进入时也会先加载站点信息。",
+          "version": "1.0.3",
+          "buildVersion": "4",
+          "date": "2026-10-05T23:25:57Z",
+          "localizedDescription": "新增 Mikan Project 番组的官方网站、Bangumi 和 Mikan 网页入口，并可选择内置 Safari 视图或外部浏览器。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5614027,
+          "size": 5642803,
           "minOSVersion": "26.0"
         }
       ],

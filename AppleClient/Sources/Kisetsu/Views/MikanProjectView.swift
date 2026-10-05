@@ -441,18 +441,22 @@ private struct MikanProjectDetailSheet: View {
 
   @ViewBuilder
   private var linkRow: some View {
-    let official = url(displayAnime.officialUrl)
-    let bangumi = url(displayAnime.bangumiUrl)
-    if official != nil || bangumi != nil {
+    let links = MikanProjectWebLinks(anime: displayAnime)
+    if !links.isEmpty {
       HStack(spacing: 10) {
-        if let official {
+        if let official = links.official {
           Link(destination: official) {
             Label("官方网站", systemImage: "safari")
           }
         }
-        if let bangumi {
+        if let bangumi = links.bangumi {
           Link(destination: bangumi) {
             Label("Bangumi 番组计划", systemImage: "book")
+          }
+        }
+        if let mikan = links.mikan {
+          Link(destination: mikan) {
+            Label("Mikan Project", systemImage: "link")
           }
         }
       }
@@ -556,10 +560,6 @@ private struct MikanProjectDetailSheet: View {
     return cleaned.isEmpty ? nil : cleaned
   }
 
-  private func url(_ value: String?) -> URL? {
-    guard let cleaned = nonEmpty(value) else { return nil }
-    return URL(string: cleaned)
-  }
 }
 
 private struct MikanDetailHeroPill: View {

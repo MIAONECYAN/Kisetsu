@@ -609,6 +609,65 @@ struct MikanProjectAnime: Codable, Identifiable, Hashable {
   var resourceCount: Int?
 }
 
+struct MikanProjectWebLinks: Equatable {
+  let official: URL?
+  let bangumi: URL?
+  let mikan: URL?
+
+  init(anime: MikanProjectAnime) {
+    official = Self.webURL(anime.officialUrl)
+    bangumi = Self.webURL(anime.bangumiUrl)
+
+    if anime.detailUrl == nil,
+       !anime.bangumiId.isEmpty,
+       anime.bangumiId.allSatisfy(\.isNumber) {
+      mikan = URL(string: "https://mikanani.me/Home/Bangumi/\(anime.bangumiId)")
+      return
+    }
+    guard let detail = Self.webURL(anime.detailUrl),
+          let host = detail.host?.lowercased(),
+          host == "mikanani.me" || host == "www.mikanani.me" else {
+      mikan = nil
+      return
+    }
+    let path = detail.path.split(separator: "/")
+    mikan = path.count == 3
+      && String(path[0]).caseInsensitiveCompare("Home") == .orderedSame
+      && String(path[1]).caseInsensitiveCompare("Bangumi") == .orderedSame
+      && path[2] == anime.bangumiId ? detail : nil
+  }
+
+  var isEmpty: Bool { official == nil && bangumi == nil && mikan == nil }
+
+  static func resourceURL(_ result: SearchResult, for anime: MikanProjectAnime) -> URL? {
+    guard result.source.lowercased() == "mikan",
+          result.mikanBangumiId == anime.bangumiId,
+          let episodeID = result.mikanEpisodeId,
+          (32...64).contains(episodeID.count),
+          episodeID.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }),
+          let detail = webURL(result.detailUrl),
+          let host = detail.host?.lowercased(),
+          host == "mikanani.me" || host == "www.mikanani.me" else { return nil }
+    let path = detail.path.split(separator: "/")
+    guard path.count == 3,
+          String(path[0]).caseInsensitiveCompare("Home") == .orderedSame,
+          String(path[1]).caseInsensitiveCompare("Episode") == .orderedSame,
+          String(path[2]).caseInsensitiveCompare(episodeID) == .orderedSame else { return nil }
+    return detail
+  }
+
+  private static func webURL(_ value: String?) -> URL? {
+    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          let url = URL(string: value),
+          let scheme = url.scheme?.lowercased(),
+          (scheme == "http" || scheme == "https"),
+          url.host?.isEmpty == false,
+          url.user == nil,
+          url.password == nil else { return nil }
+    return url
+  }
+}
+
 struct MikanProjectSection: Codable, Identifiable, Hashable {
   var id: MikanProjectSectionKind
   var name: String

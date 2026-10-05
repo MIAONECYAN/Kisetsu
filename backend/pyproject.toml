@@ -1,6 +1,6 @@
 [project]
 name = "kisetsu-backend"
-version = "1.0.2"
+version = "1.0.3"
 description = "Local FastAPI backend for Kisetsu."
 requires-python = ">=3.11"
 dependencies = [

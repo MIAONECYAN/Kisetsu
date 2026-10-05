@@ -777,14 +777,14 @@ enum MobileDebugFixtureData {
       posterOriginalUrl: nil,
       posterLocalUrl: nil,
       posterPalette: subscriptions.first?.posterPalette,
-      detailUrl: nil,
+      detailUrl: "https://mikanani.me/Home/Bangumi/fixture-mikan-monday",
       updateDate: "2026-08-22",
       airDate: "2026-07-06",
       broadcastDay: "周一",
       broadcastStart: "23:00",
       totalEpisodes: 12,
-      officialUrl: nil,
-      bangumiUrl: nil,
+      officialUrl: "https://example.org/fixture-mikan-monday",
+      bangumiUrl: "https://bgm.tv/subject/12345",
       bangumiSubjectId: "fixture-subject-1",
       section: .monday,
       subscribed: true,
@@ -857,18 +857,28 @@ enum MobileDebugFixtureData {
     warnings: []
   )
 
+  static let mikanResourceResults: [SearchResult] = searchResults.prefix(3).enumerated().map { index, original in
+    var result = original
+    let episodeID = String(format: "%032x", index + 1)
+    result.source = "mikan"
+    result.detailUrl = "https://mikanani.me/Home/Episode/\(episodeID)"
+    result.mikanEpisodeId = episodeID
+    result.mikanBangumiId = mikanAnime[0].bangumiId
+    return result
+  }
+
   static let mikanResources = MikanProjectResourcesResponse(
     anime: mikanAnime[0],
     groups: [
       MikanProjectResourceGroup(
         fansubId: "fixture-fansub-a",
         fansub: "示例字幕组 A",
-        resources: [searchResults[0], searchResults[2]]
+        resources: [mikanResourceResults[0], mikanResourceResults[2]]
       ),
       MikanProjectResourceGroup(
         fansubId: "fixture-fansub-b",
         fansub: "示例字幕组 B",
-        resources: [searchResults[1]]
+        resources: [mikanResourceResults[1]]
       )
     ],
     warnings: []

@@ -59,6 +59,9 @@ struct KisetsuApp: App {
       appStore.sites = DesktopDebugFixtureData.sites
       appStore.sitesLoaded = true
       appStore.subscriptions = DesktopDebugFixtureData.subscriptions
+      appStore.mikanProjectSeason = DesktopDebugFixtureData.mikanSeason
+      appStore.mikanProjectResources[DesktopDebugFixtureData.mikanAnime.bangumiId] =
+        MikanProjectResourcesResponse(anime: DesktopDebugFixtureData.mikanAnime, groups: [], warnings: [])
       if DesktopDebugConfiguration.initialSection == "dashboard" {
         appStore.overview = OverviewDebugFixtures.overview(subscriptions: appStore.subscriptions)
       }
@@ -129,6 +132,43 @@ struct KisetsuApp: App {
 
 #if DEBUG
 private enum DesktopDebugFixtureData {
+  static let mikanAnime = MikanProjectAnime(
+    bangumiId: "fixture-mikan-monday",
+    title: "脱敏 Mikan 动画",
+    originalTitle: "Fixture Mikan Anime",
+    synopsis: "用于桌面端界面验收的脱敏番组。",
+    posterUrl: nil,
+    posterOriginalUrl: nil,
+    posterLocalUrl: nil,
+    posterPalette: nil,
+    detailUrl: "https://mikanani.me/Home/Bangumi/fixture-mikan-monday",
+    updateDate: nil,
+    airDate: nil,
+    broadcastDay: "周一",
+    broadcastStart: nil,
+    totalEpisodes: 12,
+    officialUrl: "https://example.org/fixture-mikan-monday",
+    bangumiUrl: "https://bgm.tv/subject/12345",
+    bangumiSubjectId: "12345",
+    section: .monday,
+    subscribed: false,
+    isGrayscale: false,
+    statusText: nil,
+    resourceCount: 0
+  )
+
+  static let mikanSeason = MikanProjectSeasonResponse(
+    cacheVersion: 1,
+    seasonTitle: "Mikan Project",
+    year: 2026,
+    season: "summer",
+    cachedAt: nil,
+    lastRefreshStartedAt: nil,
+    settings: MikanProjectSettings(),
+    sections: [MikanProjectSection(id: .monday, name: "周一", shortName: "一", items: [mikanAnime])],
+    warnings: []
+  )
+
   static let sites = [
     SiteInfo(
       id: "mteam",
