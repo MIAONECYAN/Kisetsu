@@ -76,7 +76,7 @@ def create_app() -> FastAPI:
             await app.state.automation.shutdown()
             await app.state.brush.shutdown()
 
-    app = FastAPI(title="Kisetsu", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Kisetsu", version="1.0.4", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1", "http://localhost"],

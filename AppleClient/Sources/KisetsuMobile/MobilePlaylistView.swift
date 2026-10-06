@@ -1,14 +1,29 @@
 import SwiftUI
 
-private enum MobilePlaylistMode: String, CaseIterable, Identifiable {
+enum MobilePlaylistMode: String, CaseIterable, Identifiable {
   case existing
   case generate
   var id: String { rawValue }
   var title: String { self == .existing ? "现有列表" : "番组信息" }
 }
 
+enum MobilePlaylistMatchFilter: String, CaseIterable, Identifiable {
+  case all
+  case matched
+  case unmatched
+
+  var id: String { rawValue }
+  var title: String {
+    switch self {
+    case .all: "全部"
+    case .matched: "已配对"
+    case .unmatched: "未配对"
+    }
+  }
+}
+
 @MainActor
-private final class MobilePlaylistModel: ObservableObject {
+final class MobilePlaylistModel: ObservableObject {
   @Published var mode = MobilePlaylistMode.existing
   @Published var playlists: [PlexPlaylistSummary] = []
   @Published var detail: PlexPlaylistDetail?
@@ -18,6 +33,7 @@ private final class MobilePlaylistModel: ObservableObject {
   @Published var selectedQuarter: PlaylistQuarterOption?
   @Published var quarter: PlaylistQuarterResponse?
   @Published var selectedKeys: Set<String> = []
+  @Published var matchFilter: MobilePlaylistMatchFilter = .all
   @Published var pairingTarget: PlaylistQuarterItem?
   @Published var hierarchies: [String: PlexShowHierarchy] = [:]
   @Published var seasonSelections: [String: Int] = [:]
@@ -30,7 +46,41 @@ private final class MobilePlaylistModel: ObservableObject {
   @Published var message: String?
 
   var selectedItems: [PlaylistQuarterItem] {
-    (quarter?.items ?? []).filter { selectedKeys.contains($0.key) && $0.pairing?.valid == true }
+    (quarter?.items ?? []).filter {
+      selectedKeys.contains($0.key) && $0.pairing?.valid == true && $0.matchState == "matched"
+    }
+  }
+
+  var visibleItems: [PlaylistQuarterItem] {
+    (quarter?.items ?? []).filter { item in
+      switch matchFilter {
+      case .all: true
+      case .matched: item.pairing != nil && item.matchState == "matched"
+      case .unmatched: item.pairing == nil || item.matchState != "matched"
+      }
+    }
+  }
+
+  var selectableVisibleItems: [PlaylistQuarterItem] {
+    visibleItems.filter { $0.pairing?.valid == true && $0.matchState == "matched" }
+  }
+
+  var areAllVisibleSelected: Bool {
+    !selectableVisibleItems.isEmpty && selectableVisibleItems.allSatisfy { selectedKeys.contains($0.key) }
+  }
+
+  func selectAllVisible() {
+    let keys = Set(selectableVisibleItems.map(\.key))
+    guard !keys.isEmpty else { return }
+    if keys.isSubset(of: selectedKeys) {
+      selectedKeys.subtract(keys)
+      for key in keys {
+        seasonSelections[key] = nil
+        episodeSelections[key] = nil
+      }
+    } else {
+      selectedKeys.formUnion(keys)
+    }
   }
 
   func load(client: APIClient, refresh: Bool = false) async {
@@ -67,7 +117,9 @@ private final class MobilePlaylistModel: ObservableObject {
     defer { isLoading = false }
     do {
       quarter = try await client.playlistQuarter(year: option.year, month: option.month, refresh: refresh)
-      let valid = Set((quarter?.items ?? []).filter { $0.pairing?.valid == true }.map(\.key))
+      let valid = Set((quarter?.items ?? []).filter {
+        $0.pairing?.valid == true && $0.matchState == "matched"
+      }.map(\.key))
       selectedKeys.formIntersection(valid)
     } catch {
       self.error = error.localizedDescription
@@ -88,16 +140,40 @@ private final class MobilePlaylistModel: ObservableObject {
   }
 
   func loadHierarchy(for item: PlaylistQuarterItem, client: APIClient) async {
-    guard hierarchies[item.key] == nil, let key = item.pairing?.plexRatingKey else { return }
+    if let hierarchy = hierarchies[item.key] {
+      applyDefaultSelectionIfEligible(hierarchy, itemKey: item.key)
+      return
+    }
+    guard let key = item.pairing?.plexRatingKey else { return }
     do {
       let hierarchy = try await client.plexShowHierarchy(ratingKey: key)
       hierarchies[item.key] = hierarchy
+      applyDefaultSelectionIfEligible(hierarchy, itemKey: item.key)
       if let firstSeason = hierarchy.seasons.first(where: { !$0.episodes.filter(\.playable).isEmpty }) {
         seasonSelections[item.key] = seasonSelections[item.key] ?? firstSeason.seasonNumber
       }
     } catch {
       self.error = error.localizedDescription
     }
+  }
+
+  func prepareCachedSelections() {
+    for item in selectedItems {
+      if let hierarchy = hierarchies[item.key] {
+        applyDefaultSelectionIfEligible(hierarchy, itemKey: item.key)
+      }
+    }
+  }
+
+  func applyDefaultSelectionIfEligible(_ hierarchy: PlexShowHierarchy, itemKey: String) {
+    guard seasonSelections[itemKey] == nil,
+          episodeSelections[itemKey] == nil,
+          hierarchy.seasons.count == 1,
+          let season = hierarchy.seasons.first,
+          season.seasonNumber == 1,
+          let episode = season.episodes.first(where: { $0.episodeNumber == 1 && $0.playable }) else { return }
+    seasonSelections[itemKey] = 1
+    episodeSelections[itemKey] = episode.ratingKey
   }
 
   func episodes(for item: PlaylistQuarterItem) -> [PlexEpisode] {
@@ -188,7 +264,9 @@ private final class MobilePlaylistModel: ObservableObject {
     title = "\(option.year) 年 \(option.month) 月番组"
     quarter = MobileDebugFixtureData.playlistQuarter
     hierarchies = ["fixture-playlist-1": MobileDebugFixtureData.playlistHierarchy]
-    let valid = Set((quarter?.items ?? []).filter { $0.pairing?.valid == true }.map(\.key))
+    let valid = Set((quarter?.items ?? []).filter {
+      $0.pairing?.valid == true && $0.matchState == "matched"
+    }.map(\.key))
     selectedKeys.formIntersection(valid)
   }
 #endif
@@ -256,8 +334,30 @@ struct MobilePlaylistView: View {
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         if model.mode == .generate {
-          Button("创建清单", systemImage: "rectangle.stack.badge.plus") { showingSelection = true }
-            .disabled(model.selectedItems.isEmpty)
+          Menu {
+            Section("显示范围") {
+              Picker("配对状态", selection: $model.matchFilter) {
+                ForEach(MobilePlaylistMatchFilter.allCases) { filter in
+                  Text(filter.title).tag(filter)
+                }
+              }
+            }
+            Section("清单操作") {
+              Button(
+                model.areAllVisibleSelected ? "取消全选当前结果" : "全选当前结果",
+                systemImage: "checkmark.circle"
+              ) { model.selectAllVisible() }
+                .disabled(model.selectableVisibleItems.isEmpty || model.isLoading)
+              Button("创建清单", systemImage: "rectangle.stack.badge.plus") {
+                model.prepareCachedSelections()
+                showingSelection = true
+              }
+                .disabled(model.selectedItems.isEmpty || model.isLoading)
+            }
+          } label: {
+            Image(systemName: "ellipsis")
+          }
+          .accessibilityLabel("更多")
         }
         MobileToolbarRefreshButton(target: .playlists, isRefreshing: model.isLoading) {
           await model.load(client: store.client, refresh: true)
@@ -337,18 +437,23 @@ struct MobilePlaylistView: View {
   @ViewBuilder
   private var generatorRows: some View {
     Section {
-      Menu {
-        ForEach(Array(Set(model.quarters.map(\.year))).sorted(by: >), id: \.self) { year in
-          Menu("\(year) 年") {
-            ForEach(model.quarters.filter { $0.year == year }) { option in
-              Button("\(option.month) 月 · \(option.count) 部") {
-                Task { await model.load(option, client: store.client) }
+      HStack {
+        Text("季度")
+        Spacer()
+        Menu {
+          ForEach(Array(Set(model.quarters.map(\.year))).sorted(by: >), id: \.self) { year in
+            Menu("\(year) 年") {
+              ForEach(model.quarters.filter { $0.year == year }) { option in
+                Button("\(option.month) 月 · \(option.count) 部") {
+                  Task { await model.load(option, client: store.client) }
+                }
               }
             }
           }
+        } label: {
+          Text(model.selectedQuarter?.title ?? "选择季度")
         }
-      } label: {
-        LabeledContent("季度", value: model.selectedQuarter?.title ?? "选择季度")
+        .accessibilityLabel("选择季度，当前\(model.selectedQuarter?.title ?? "未选择")")
       }
       .disabled(model.isLoading)
       if !model.selectedItems.isEmpty {
@@ -358,7 +463,15 @@ struct MobilePlaylistView: View {
     }
 
     if model.quarter?.items.isEmpty == false {
-      ForEach(model.quarter?.items ?? []) { item in
+      if model.visibleItems.isEmpty {
+        ContentUnavailableView(
+          model.matchFilter == .matched ? "没有已配对的番组" : "没有未配对的番组",
+          systemImage: "line.3.horizontal.decrease"
+        )
+        .frame(maxWidth: .infinity, minHeight: 300)
+        .listRowBackground(Color.clear)
+      }
+      ForEach(model.visibleItems) { item in
         MobilePlaylistAnimeRow(
           item: item,
           posterURL: store.backendResourceURL(item.posterUrl),
@@ -512,6 +625,12 @@ private struct MobilePlaylistPairingSheet: View {
   @State private var query = ""
   @State private var shows: [PlexShow] = []
   @State private var isLoading = false
+
+  init(item: PlaylistQuarterItem, pair: @escaping (PlexShow) async -> Bool) {
+    self.item = item
+    self.pair = pair
+    _query = State(initialValue: item.title)
+  }
 
   var body: some View {
     NavigationStack {
