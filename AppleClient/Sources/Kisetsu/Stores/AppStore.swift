@@ -201,6 +201,10 @@ final class AppStore: ObservableObject {
     cleanEmptyDownloadDirs: true
   )
   @Published var searchSettings = SearchSettings(siteTimeoutSeconds: 15)
+  @Published var fansubRuleSettings: FansubRuleSettings?
+  @Published var fansubRuleError: String?
+  @Published var fansubRulesLoading = false
+  @Published var fansubRulesSubmitting = false
   @Published var mikanProjectSettings = MikanProjectSettings()
   @Published private(set) var mikanProjectSettingsSubmitting = false
   @Published var mikanProjectSeason: MikanProjectSeasonResponse?
@@ -430,6 +434,7 @@ final class AppStore: ObservableObject {
   private var operationSequence = LatestOperationSequence()
   private var subscriptionLoadSequence = LatestOperationSequence()
   private var subscriptionGroupLoadSequence = LatestOperationSequence()
+  private var fansubRuleSequence = LatestOperationSequence()
   private var overviewLoadSequence = LatestOperationSequence()
   private var metadataBindSequence = LatestOperationSequence()
   private var manualOrganizeSequence = LatestOperationSequence()
@@ -693,6 +698,11 @@ final class AppStore: ObservableObject {
       subscriptionGroupsLoading = false
       subscriptionGroupSubmitting = false
       _ = subscriptionGroupLoadSequence.begin()
+      _ = fansubRuleSequence.begin()
+      fansubRuleSettings = nil
+      fansubRuleError = nil
+      fansubRulesLoading = false
+      fansubRulesSubmitting = false
       schedulerStatus = nil
       smartSubscriptionRequestID = nil
       smartSubscriptionPreparingResultID = nil
@@ -732,6 +742,11 @@ final class AppStore: ObservableObject {
       subscriptionGroupsLoading = false
       subscriptionGroupSubmitting = false
       _ = subscriptionGroupLoadSequence.begin()
+      _ = fansubRuleSequence.begin()
+      fansubRuleSettings = nil
+      fansubRuleError = nil
+      fansubRulesLoading = false
+      fansubRulesSubmitting = false
       schedulerStatus = nil
       smartSubscriptionRequestID = nil
       smartSubscriptionPreparingResultID = nil
@@ -1092,6 +1107,47 @@ final class AppStore: ObservableObject {
     await run("保存搜索设置", successTitle: "搜索设置已保存") {
       searchSettings = try await client.saveSearchSettings(searchSettings)
       appendLog("搜索设置已保存：单站点超时 \(Int(searchSettings.siteTimeoutSeconds)) 秒。")
+    }
+  }
+
+  func loadFansubRuleSettings() async {
+    guard !fansubRulesLoading && !fansubRulesSubmitting else { return }
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestID = fansubRuleSequence.begin()
+    let requestClient = client
+    fansubRulesLoading = true
+    fansubRuleError = nil
+    defer { if fansubRuleSequence.accepts(requestID) { fansubRulesLoading = false } }
+    do {
+      let response = try await requestClient.fansubRuleSettings()
+      guard backendURL == endpoint, backendRevision == revision, fansubRuleSequence.accepts(requestID) else { return }
+      fansubRuleSettings = response
+    } catch {
+      guard backendURL == endpoint, backendRevision == revision, fansubRuleSequence.accepts(requestID) else { return }
+      fansubRuleError = error.localizedDescription
+    }
+  }
+
+  @discardableResult
+  func saveFansubRuleSettings(_ update: FansubRuleSettingsUpdate) async -> Bool {
+    guard !fansubRulesSubmitting && !fansubRulesLoading else { return false }
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestID = fansubRuleSequence.begin()
+    let requestClient = client
+    fansubRulesSubmitting = true
+    fansubRuleError = nil
+    defer { if fansubRuleSequence.accepts(requestID) { fansubRulesSubmitting = false } }
+    do {
+      let response = try await requestClient.saveFansubRuleSettings(update)
+      guard backendURL == endpoint, backendRevision == revision, fansubRuleSequence.accepts(requestID) else { return false }
+      fansubRuleSettings = response
+      return true
+    } catch {
+      guard backendURL == endpoint, backendRevision == revision, fansubRuleSequence.accepts(requestID) else { return false }
+      fansubRuleError = error.localizedDescription
+      return false
     }
   }
 

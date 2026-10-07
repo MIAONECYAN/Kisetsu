@@ -549,6 +549,36 @@ struct SearchSettings: Codable, Hashable {
   var siteTimeoutSeconds: Double
 }
 
+struct FansubRuleSettings: Codable, Hashable {
+  var builtinNames: [String]
+  var builtinKeywords: [String]
+  var customNames: [String]
+  var disabledBuiltinNames: [String]
+  var disabledCustomNames: [String]
+  var genericKeywordsEnabled: Bool
+
+  private enum CodingKeys: String, CodingKey {
+    case builtinNames, builtinKeywords, customNames, disabledBuiltinNames, disabledCustomNames, genericKeywordsEnabled
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    builtinNames = try container.decode([String].self, forKey: .builtinNames)
+    builtinKeywords = try container.decode([String].self, forKey: .builtinKeywords)
+    customNames = try container.decode([String].self, forKey: .customNames)
+    disabledBuiltinNames = try container.decodeIfPresent([String].self, forKey: .disabledBuiltinNames) ?? []
+    disabledCustomNames = try container.decodeIfPresent([String].self, forKey: .disabledCustomNames) ?? []
+    genericKeywordsEnabled = try container.decodeIfPresent(Bool.self, forKey: .genericKeywordsEnabled) ?? true
+  }
+}
+
+struct FansubRuleSettingsUpdate: Codable {
+  var customNames: [String]
+  var disabledBuiltinNames: [String]
+  var disabledCustomNames: [String]
+  var genericKeywordsEnabled: Bool
+}
+
 struct MikanProjectSettings: Codable, Hashable {
   var autoRefreshEnabled: Bool = true
   var refreshIntervalHours: Int = 1

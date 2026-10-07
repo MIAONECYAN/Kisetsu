@@ -3,9 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 import unicodedata
+from collections.abc import Collection
 
 from app.models import EpisodeParseRule, ParsedAnimeTitle, SearchResult
-from app.services.title_parser import parse_title
+from app.services.title_parser import KNOWN_FANSUB_TOKENS, parse_title
+
+SEARCH_BUILTIN_FANSUB_NAMES = ("黒ネズミたち",)
 
 _EPISODE_FIELDS = (
     "episode",
@@ -62,6 +65,14 @@ class SearchResultAnalysis:
 def _text_key(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value).casefold()
     return re.sub(r"\s+", " ", normalized).strip()
+
+
+def custom_leading_fansub(title: str, names: Collection[str]) -> str | None:
+    match = re.match(r"^(?:\[([^\]]+)\]|【([^】]+)】)", title.strip())
+    if match is None or not title.strip()[match.end():].strip():
+        return None
+    leading = _text_key(match.group(1) or match.group(2) or "")
+    return next((name for name in names if _text_key(name) == leading), None)
 
 
 def search_result_text_fields(result: SearchResult) -> tuple[tuple[str, str], ...]:
@@ -196,9 +207,33 @@ def analyze_search_result(
     )
 
 
-def enrich_search_result(result: SearchResult) -> SearchResult:
+def enrich_search_result(
+    result: SearchResult,
+    *,
+    custom_fansubs: Collection[str] = (),
+    disabled_fansubs: Collection[str] = (),
+    generic_keywords_enabled: bool = True,
+) -> SearchResult:
     analysis = analyze_search_result(result)
     parsed = analysis.effective
+    disabled_keys = {_text_key(name) for name in disabled_fansubs}
+    parsed_name = parsed.fansub
+    known_name = max(
+        (name for name in KNOWN_FANSUB_TOKENS if parsed_name and _text_key(name) in _text_key(parsed_name)),
+        key=len,
+        default=None,
+    )
+    explicit_star = bool(parsed_name and any(
+        value.lstrip().startswith(f"{parsed_name}★")
+        for value in (result.title, result.subtitle or "")
+    ))
+    if known_name is not None and _text_key(known_name) in disabled_keys:
+        parsed_name = None
+    elif not generic_keywords_enabled and known_name is None and not explicit_star:
+        parsed_name = None
+    fansub = parsed_name or custom_leading_fansub(result.title, SEARCH_BUILTIN_FANSUB_NAMES) or custom_leading_fansub(result.title, custom_fansubs)
+    if fansub is not None and _text_key(fansub) in disabled_keys:
+        fansub = None
     fallback_episode = None
     if parsed.episode is None and result.description:
         match = re.search(r"(?:第\s*)?(\d{1,4})\s*[集话話]", result.description)
@@ -213,7 +248,7 @@ def enrich_search_result(result: SearchResult) -> SearchResult:
         parse_reason = "简介集数"
     return result.model_copy(
         update={
-            "parsed_fansub": parsed.fansub,
+            "parsed_fansub": fansub,
             "parsed_episode": episode,
             "parsed_episode_start": episode_start,
             "parsed_episode_end": parsed.episode_end,

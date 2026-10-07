@@ -160,6 +160,8 @@ KNOWN_FANSUB_TOKENS = {
     "芝士动物朋友",
 }
 
+FANSUB_HINT_LABELS = ("字幕", "字幕组", "字幕組", "压制", "壓製", "fansub", "sub", "subs", "raw", "raws", "team", "group")
+
 
 def _normalize_release_token(value: str | None) -> str:
     if not value:

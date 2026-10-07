@@ -8,6 +8,7 @@ enum MobileSettingsDestination: String, CaseIterable, Identifiable {
   case notifications
   case ai
   case episodeRules
+  case fansubRules
   case playlists
 
   var id: String { rawValue }
@@ -20,6 +21,7 @@ enum MobileSettingsDestination: String, CaseIterable, Identifiable {
     case .notifications: "通知"
     case .ai: "AI 辅助分析"
     case .episodeRules: "集数识别"
+    case .fansubRules: "字幕组"
     case .playlists: "播放列表服务器"
     }
   }
@@ -32,6 +34,7 @@ enum MobileSettingsDestination: String, CaseIterable, Identifiable {
     case .notifications: "Bark 与事件通知"
     case .ai: "Provider、模型与智能订阅"
     case .episodeRules: "全局自定义集数解析规则"
+    case .fansubRules: "内置规则与自定义字幕组"
     case .playlists: "Plex Server 与季度数据源"
     }
   }
@@ -44,6 +47,7 @@ enum MobileSettingsDestination: String, CaseIterable, Identifiable {
     case .notifications: "bell.badge"
     case .ai: "sparkles"
     case .episodeRules: "number.circle"
+    case .fansubRules: "captions.bubble"
     case .playlists: "rectangle.stack.badge.play"
     }
   }
@@ -686,6 +690,154 @@ struct MobileAISettingsView: View {
 
   private var baseURLValidationMessage: String? {
     MobileFormValidation.httpURLMessage(store.aiBaseURL, field: "Base URL", allowsEmpty: true)
+  }
+}
+
+struct MobileFansubRulesSettingsView: View {
+  @EnvironmentObject private var store: AppStore
+  @State private var customNames: [String] = []
+  @State private var disabledBuiltinNames: Set<String> = []
+  @State private var disabledCustomNames: Set<String> = []
+  @State private var genericKeywordsEnabled = true
+  @State private var newName = ""
+  @State private var entryError: String?
+
+  var body: some View {
+    Form {
+      if store.fansubRulesLoading {
+        Section { ProgressView() }
+      }
+      if let error = store.fansubRuleError {
+        Section {
+          MobileFormValidationMessage(message: error)
+          if store.fansubRuleSettings == nil {
+            Button("重新读取", systemImage: "arrow.clockwise") {
+              Task { await store.loadFansubRuleSettings() }
+            }
+          }
+        }
+      }
+      if let entryError {
+        Section { MobileFormValidationMessage(message: entryError) }
+      }
+      if let settings = store.fansubRuleSettings {
+        Section("识别方式") {
+          Text("搜索结果中，优先识别标题开头 [名称] 或【名称】中的已知字幕组；“字幕组★标题”也会识别。以下设置不改变订阅匹配规则。")
+            .foregroundStyle(.secondary)
+        }
+        Section {
+          DisclosureGroup("内置名称（\(settings.builtinNames.count)）") {
+            ForEach(settings.builtinNames, id: \.self) { name in
+              Toggle(name, isOn: enabledBinding(for: name, builtin: true))
+                .disabled(store.fansubRulesSubmitting)
+            }
+          }
+        } header: {
+          Text("内置识别")
+        }
+        Section {
+          Toggle("启用通用推断", isOn: $genericKeywordsEnabled)
+            .disabled(store.fansubRulesSubmitting)
+          Text(settings.builtinKeywords.joined(separator: " · "))
+            .foregroundStyle(.secondary)
+        } header: {
+          Text("通用关键词推断")
+        } footer: {
+          Text("仅在搜索结果标题开头的标记中，凭上述字样推断未知字幕组；可能误判，可单独关闭。")
+        }
+        Section {
+          if customNames.isEmpty {
+            Text("暂无自定义字幕组")
+              .foregroundStyle(.secondary)
+          }
+          ForEach(customNames, id: \.self) { name in
+            HStack {
+              Toggle(name, isOn: enabledBinding(for: name, builtin: false))
+                .disabled(store.fansubRulesSubmitting)
+              Button(role: .destructive) {
+                customNames.removeAll { $0 == name }
+                disabledCustomNames.remove(name)
+              } label: {
+                Image(systemName: "trash")
+              }
+              .accessibilityLabel("删除 \(name)")
+              .disabled(store.fansubRulesSubmitting)
+            }
+          }
+          MobileFormTextField(label: "名称", prompt: "字幕组名称", text: $newName)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+          Button("加入列表", systemImage: "plus") { addName() }
+            .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || customNames.count >= 100 || store.fansubRulesSubmitting)
+          Button("保存更改", systemImage: "square.and.arrow.down") {
+            let update = FansubRuleSettingsUpdate(
+              customNames: customNames,
+              disabledBuiltinNames: disabledBuiltinNames.sorted(),
+              disabledCustomNames: disabledCustomNames.sorted(),
+              genericKeywordsEnabled: genericKeywordsEnabled
+            )
+            Task { await store.saveFansubRuleSettings(update) }
+          }
+          .disabled(!hasChanges || store.fansubRulesSubmitting || store.fansubRulesLoading)
+        } header: {
+          Text("自定义名称")
+        } footer: {
+          Text(hasChanges ? "更改尚未保存；点击“保存更改”后生效。" : "关闭的名称会保留在列表中；自定义名称只匹配搜索结果标题开头的完整标记。")
+        }
+      } else if !store.fansubRulesLoading && store.fansubRuleError == nil {
+        Section {
+          Button("读取字幕组规则", systemImage: "arrow.clockwise") {
+            Task { await store.loadFansubRuleSettings() }
+          }
+        }
+      }
+    }
+    .mobileStatusNavigationTitle("字幕组")
+    .onChange(of: store.fansubRuleSettings) { _, settings in
+      customNames = settings?.customNames ?? []
+      disabledBuiltinNames = Set(settings?.disabledBuiltinNames ?? [])
+      disabledCustomNames = Set(settings?.disabledCustomNames ?? [])
+      genericKeywordsEnabled = settings?.genericKeywordsEnabled ?? true
+      entryError = nil
+    }
+    .task {
+      guard MobileDebugConfiguration.shouldLoadNetworkAtRuntime else { return }
+      await store.loadFansubRuleSettings()
+    }
+  }
+
+  private func addName() {
+    guard !store.fansubRulesSubmitting else { return }
+    let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty else { return }
+    let existing = (store.fansubRuleSettings?.builtinNames ?? []) + customNames
+    guard !existing.contains(where: { $0.folding(options: [.caseInsensitive, .widthInsensitive], locale: .current) == name.folding(options: [.caseInsensitive, .widthInsensitive], locale: .current) }) else {
+      entryError = "字幕组已存在"
+      return
+    }
+    customNames.append(name)
+    newName = ""
+    entryError = nil
+  }
+
+  private var hasChanges: Bool {
+    guard let saved = store.fansubRuleSettings else { return false }
+    return customNames != saved.customNames
+      || disabledBuiltinNames != Set(saved.disabledBuiltinNames)
+      || disabledCustomNames != Set(saved.disabledCustomNames)
+      || genericKeywordsEnabled != saved.genericKeywordsEnabled
+  }
+
+  private func enabledBinding(for name: String, builtin: Bool) -> Binding<Bool> {
+    Binding {
+      !(builtin ? disabledBuiltinNames : disabledCustomNames).contains(name)
+    } set: { enabled in
+      if builtin {
+        if enabled { disabledBuiltinNames.remove(name) } else { disabledBuiltinNames.insert(name) }
+      } else {
+        if enabled { disabledCustomNames.remove(name) } else { disabledCustomNames.insert(name) }
+      }
+    }
   }
 }
 

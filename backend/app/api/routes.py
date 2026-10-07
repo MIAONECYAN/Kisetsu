@@ -80,6 +80,8 @@ from app.models import (
     EpisodeRuleVisualMark,
     EpisodeTitleToken,
     EpisodeRulesUpdateRequest,
+    FansubRuleSettings,
+    FansubRuleSettingsUpdate,
     HistoryClearRequest,
     HistoryClearResponse,
     MetadataBindRequest,
@@ -249,7 +251,7 @@ from app.services.organizer import (
 )
 from app.services.plex_naming import clean_path_component, season_directory, show_directory
 from app.services.search import search_multi_site
-from app.services.search_result_analysis import enrich_search_result, is_collection_parsed
+from app.services.search_result_analysis import SEARCH_BUILTIN_FANSUB_NAMES, enrich_search_result, is_collection_parsed
 from app.services.subscription import (
     analyze_match,
     filter_results_by_subscription_size,
@@ -266,7 +268,13 @@ from app.services.subscription_identity import (
     title_identity_keys,
 )
 from app.services.subscription_runner import fetch_subscription_results, reconcile_pending_confirmations, refresh_all_enabled, refresh_subscription as run_subscription_refresh
-from app.services.title_parser import normalize_resolution_preset, parse_title
+from app.services.title_parser import (
+    FANSUB_HINT_LABELS,
+    KNOWN_FANSUB_TOKENS,
+    _is_generic_release_tag,
+    normalize_resolution_preset,
+    parse_title,
+)
 from app.settings import default_organize_policy, mask_secret, mask_url_secret, set_runtime_tmdb_api_key, tmdb_api_key
 from app.sites import default_site_settings, describe_site_error, get_site_adapter, list_sites, merge_site_settings, site_usage_restriction
 from app.sites.rate_limiter import drain_rate_limit_events
@@ -748,6 +756,61 @@ def stored_ai_settings(store: Store) -> AISettings:
 def stored_search_settings(store: Store) -> SearchSettings:
     data = store.get_config("search_settings") or {}
     return SearchSettings(**data)
+
+
+def _fansub_name_key(value: str) -> str:
+    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
+def _validated_custom_fansubs(names: list[str]) -> list[str]:
+    seen = {_fansub_name_key(name) for name in KNOWN_FANSUB_TOKENS | set(SEARCH_BUILTIN_FANSUB_NAMES)}
+    validated: list[str] = []
+    for raw_name in names:
+        name = raw_name.strip()
+        if (
+            not 2 <= len(name) <= 64
+            or any(char in "[]【】\r\n" or ord(char) < 32 for char in name)
+            or _is_generic_release_tag(name)
+        ):
+            raise HTTPException(status_code=422, detail="字幕组名称须为 2–64 个字符，且不能是资源标签或包含方括号。")
+        key = _fansub_name_key(name)
+        if key in seen:
+            raise HTTPException(status_code=409, detail=f"字幕组“{name}”已存在于内置或自定义规则中。")
+        seen.add(key)
+        validated.append(name)
+    return validated
+
+
+def _validated_disabled_fansubs(names: list[str], allowed: list[str]) -> list[str]:
+    allowed_by_key = {_fansub_name_key(name): name for name in allowed}
+    disabled: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        key = _fansub_name_key(name)
+        if key not in allowed_by_key or key in seen:
+            raise HTTPException(status_code=422, detail="停用的字幕组必须存在且不能重复。")
+        disabled.append(allowed_by_key[key])
+        seen.add(key)
+    return disabled
+
+
+def stored_fansub_rule_config(store: Store) -> dict:
+    saved = store.get_config("search_fansub_rules")
+    if isinstance(saved, dict):
+        return saved
+    return {"custom_names": list(store.get_config("search_custom_fansubs") or [])}
+
+
+def fansub_rule_settings(store: Store) -> FansubRuleSettings:
+    saved = stored_fansub_rule_config(store)
+    return FansubRuleSettings(
+        builtin_names=sorted(KNOWN_FANSUB_TOKENS | set(SEARCH_BUILTIN_FANSUB_NAMES)),
+        builtin_keywords=list(FANSUB_HINT_LABELS),
+        custom_names=saved.get("custom_names") or [],
+        disabled_builtin_names=saved.get("disabled_builtin_names") or [],
+        disabled_custom_names=saved.get("disabled_custom_names") or [],
+        generic_keywords_enabled=saved.get("generic_keywords_enabled", True),
+    )
 
 
 def normalize_ai_settings(
@@ -2216,7 +2279,18 @@ async def search(request: SearchRequest, store: Store = Depends(get_store)) -> S
         timeout_seconds=request.timeout_seconds or settings.site_timeout_seconds,
     )
     raw_count = diagnostics.total_fetched
-    display_results = [enrich_search_result(result) for result in results[: request.limit]]
+    fansub_settings = fansub_rule_settings(store)
+    disabled_fansubs = fansub_settings.disabled_builtin_names + fansub_settings.disabled_custom_names
+    active_custom = [name for name in fansub_settings.custom_names if name not in fansub_settings.disabled_custom_names]
+    display_results = [
+        enrich_search_result(
+            result,
+            custom_fansubs=active_custom,
+            disabled_fansubs=disabled_fansubs,
+            generic_keywords_enabled=fansub_settings.generic_keywords_enabled,
+        )
+        for result in results[: request.limit]
+    ]
     if len(results) > request.limit:
         warnings.append(f"结果过多，本次仅显示前 {request.limit} 条，请缩小关键词后再试。")
     return SearchResponse(
@@ -2302,6 +2376,29 @@ async def get_search_settings(store: Store = Depends(get_store)) -> SearchSettin
 async def save_search_settings(settings: SearchSettings, store: Store = Depends(get_store)) -> SearchSettings:
     store.set_config("search_settings", settings.model_dump(mode="json"))
     return settings
+
+
+@router.get("/settings/fansub-rules", response_model=FansubRuleSettings)
+async def get_fansub_rule_settings(store: Store = Depends(get_store)) -> FansubRuleSettings:
+    return fansub_rule_settings(store)
+
+
+@router.put("/settings/fansub-rules", response_model=FansubRuleSettings)
+async def save_fansub_rule_settings(
+    settings: FansubRuleSettingsUpdate,
+    store: Store = Depends(get_store),
+) -> FansubRuleSettings:
+    custom_names = _validated_custom_fansubs(settings.custom_names)
+    builtin_names = sorted(KNOWN_FANSUB_TOKENS | set(SEARCH_BUILTIN_FANSUB_NAMES))
+    disabled_builtin = _validated_disabled_fansubs(settings.disabled_builtin_names, builtin_names)
+    disabled_custom = _validated_disabled_fansubs(settings.disabled_custom_names, custom_names)
+    store.set_config("search_fansub_rules", {
+        "custom_names": custom_names,
+        "disabled_builtin_names": disabled_builtin,
+        "disabled_custom_names": disabled_custom,
+        "generic_keywords_enabled": settings.generic_keywords_enabled,
+    })
+    return fansub_rule_settings(store)
 
 
 @router.post("/downloads", response_model=DownloadResponse)

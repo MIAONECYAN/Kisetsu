@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.4",
-          "buildVersion": "5",
-          "date": "2026-10-06T14:27:21Z",
-          "localizedDescription": "修复 iPhone 播放列表创建清单时，第 1 季仅有一季且第 1 集可播放却未默认选中该集的问题；手动改选后保持选择。",
+          "version": "1.0.5",
+          "buildVersion": "6",
+          "date": "2026-10-07T23:27:22Z",
+          "localizedDescription": "新增可管理的字幕组识别规则：可启用或关闭内置名称、自定义名称及通用关键词推断；搜索结果中的字幕组识别更准确。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5657189,
+          "size": 5698227,
           "minOSVersion": "26.0"
         }
       ],

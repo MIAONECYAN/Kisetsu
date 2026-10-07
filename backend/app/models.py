@@ -62,7 +62,7 @@ class HealthResponse(BaseModel):
     ok: bool = True
     status: str = "ok"
     app: str = "Kisetsu"
-    version: str = "1.0.4"
+    version: str = "1.0.5"
     message: str = "后端连接正常"
     time: datetime
     port: int | None = None
@@ -286,6 +286,22 @@ class SearchDiagnostics(BaseModel):
 
 class SearchSettings(BaseModel):
     site_timeout_seconds: float = Field(default=15, ge=3, le=60)
+
+
+class FansubRuleSettings(BaseModel):
+    builtin_names: list[str] = Field(default_factory=list)
+    builtin_keywords: list[str] = Field(default_factory=list)
+    custom_names: list[str] = Field(default_factory=list)
+    disabled_builtin_names: list[str] = Field(default_factory=list)
+    disabled_custom_names: list[str] = Field(default_factory=list)
+    generic_keywords_enabled: bool = True
+
+
+class FansubRuleSettingsUpdate(BaseModel):
+    custom_names: list[str] = Field(default_factory=list, max_length=100)
+    disabled_builtin_names: list[str] = Field(default_factory=list)
+    disabled_custom_names: list[str] = Field(default_factory=list)
+    generic_keywords_enabled: bool = True
 
 
 class SearchResponse(BaseModel):

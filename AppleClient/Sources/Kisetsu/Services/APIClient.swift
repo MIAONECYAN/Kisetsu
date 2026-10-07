@@ -603,6 +603,14 @@ struct APIClient {
     try await request("api/settings/search", method: "PUT", body: settings)
   }
 
+  func fansubRuleSettings() async throws -> FansubRuleSettings {
+    try await request("api/settings/fansub-rules")
+  }
+
+  func saveFansubRuleSettings(_ update: FansubRuleSettingsUpdate) async throws -> FansubRuleSettings {
+    try await request("api/settings/fansub-rules", method: "PUT", body: update)
+  }
+
   func mikanProjectSettings() async throws -> MikanProjectSettings {
     try await request("api/mikan-project/settings")
   }

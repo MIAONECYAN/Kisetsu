@@ -176,6 +176,7 @@ struct MobileSettingsView: View {
       case .notifications: MobileNotificationSettingsView()
       case .ai: MobileAISettingsView()
       case .episodeRules: MobileEpisodeRulesSettingsView()
+      case .fansubRules: MobileFansubRulesSettingsView()
       case .playlists: MobilePlaylistServerSettingsView()
       }
     }
