@@ -502,6 +502,17 @@ struct SearchResult: Codable, Identifiable, Hashable {
   var parsedDisplayEpisodeLabel: String?
   var parsedParseReason: String?
 
+  var detailWebURL: URL? {
+    guard let value = detailUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+          let url = URL(string: value),
+          let scheme = url.scheme?.lowercased(),
+          (scheme == "http" || scheme == "https"),
+          url.host?.isEmpty == false,
+          url.user == nil,
+          url.password == nil else { return nil }
+    return url
+  }
+
   var isCollectionResource: Bool {
     if parsedIsBatch == true || parsedIsMultiEpisode == true {
       return true

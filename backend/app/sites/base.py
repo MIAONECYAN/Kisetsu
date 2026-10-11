@@ -647,6 +647,7 @@ def torrent_filename(result: SearchResult) -> str:
 
 
 def _default_site_adapter(site_id: str) -> BaseSiteAdapter:
+    from .anime_garden import AnimeGardenAdapter
     from .dmhy import DmhyAdapter
     from .hddolby import HDDolbyAdapter
     from .mikan import MikanAdapter
@@ -657,6 +658,7 @@ def _default_site_adapter(site_id: str) -> BaseSiteAdapter:
 
 
     adapters: dict[str, BaseSiteAdapter] = {
+        "animegarden": AnimeGardenAdapter(),
         "dmhy": DmhyAdapter(),
         "mikan": MikanAdapter(),
         "nyaa": NyaaAdapter(),
@@ -672,7 +674,7 @@ def _default_site_adapter(site_id: str) -> BaseSiteAdapter:
 
 def default_site_settings() -> dict[str, SiteSettingsUpdate]:
     settings: dict[str, SiteSettingsUpdate] = {}
-    for site_id in ("dmhy", "mikan", "nyaa", "mteam", "soulvoice", "hddolby", "opencd"):
+    for site_id in ("animegarden", "dmhy", "mikan", "nyaa", "mteam", "soulvoice", "hddolby", "opencd"):
         adapter = _default_site_adapter(site_id)
         info = adapter.info()
         settings[site_id] = SiteSettingsUpdate(
@@ -730,7 +732,7 @@ def _apply_settings(adapter: BaseSiteAdapter, settings: SiteSettingsUpdate) -> B
 
 def list_sites(raw_settings: dict | None = None, site_ids: Iterable[str] | None = None) -> list[SiteInfo]:
     settings = merge_site_settings(raw_settings)
-    ids = list(site_ids) if site_ids is not None else ["dmhy", "mikan", "nyaa", "mteam", "soulvoice", "hddolby", "opencd"]
+    ids = list(site_ids) if site_ids is not None else ["animegarden", "dmhy", "mikan", "nyaa", "mteam", "soulvoice", "hddolby", "opencd"]
     return [
         _apply_settings(_default_site_adapter(site_id), settings[site_id]).info()
         for site_id in ids

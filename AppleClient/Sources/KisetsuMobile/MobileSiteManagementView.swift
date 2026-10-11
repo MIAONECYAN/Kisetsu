@@ -3,6 +3,7 @@ import SwiftUI
 struct MobileSiteManagementView: View {
   @EnvironmentObject private var store: AppStore
   @State private var isRefreshing = false
+  @State private var isAddingAnimeGarden = false
 
   var body: some View {
     List(store.sites) { site in
@@ -35,6 +36,18 @@ struct MobileSiteManagementView: View {
     }
     .mobileStatusNavigationTitle("站点管理")
     .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        if !store.sites.contains(where: { $0.id == "animegarden" }) {
+          Button("添加 Anime Garden", systemImage: "plus") {
+            Task {
+              isAddingAnimeGarden = true
+              defer { isAddingAnimeGarden = false }
+              await store.addSiteTemplate("animegarden")
+            }
+          }
+          .disabled(isAddingAnimeGarden)
+        }
+      }
       ToolbarItem(placement: .topBarTrailing) {
         MobileToolbarRefreshButton(target: .sites, isRefreshing: isRefreshing) {
           await refresh()

@@ -1253,7 +1253,7 @@ struct SearchResultRow: View {
       .disabled(store.isLoading)
       .help("选择整理目标后提交 magnet/torrent 到手动下载器")
 
-      if let detailURL = result.detailUrl, let url = URL(string: detailURL) {
+      if let url = result.detailWebURL {
         Link(destination: url) {
           Label("查看详情", systemImage: "safari")
         }

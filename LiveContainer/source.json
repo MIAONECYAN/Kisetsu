@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.5",
-          "buildVersion": "6",
-          "date": "2026-10-07T23:27:22Z",
-          "localizedDescription": "新增可管理的字幕组识别规则：可启用或关闭内置名称、自定义名称及通用关键词推断；搜索结果中的字幕组识别更准确。",
+          "version": "1.0.6",
+          "buildVersion": "7",
+          "date": "2026-10-11T14:56:47Z",
+          "localizedDescription": "新增 Anime Garden 搜索；修复资源详情链接；iPhone 搜索支持选择内置 Safari 视图或外部浏览器打开网页，并优化 Mikan Project 浏览器菜单。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5698227,
+          "size": 5711311,
           "minOSVersion": "26.0"
         }
       ],

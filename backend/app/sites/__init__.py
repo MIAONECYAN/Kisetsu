@@ -1,4 +1,5 @@
 from .base import SiteAdapterError, default_site_settings, describe_site_error, get_site_adapter, list_sites, merge_site_settings, site_usage_restriction
+from .anime_garden import AnimeGardenAdapter
 from .dmhy import DmhyAdapter
 from .hddolby import HDDolbyAdapter
 from .mikan import MikanAdapter
@@ -8,6 +9,7 @@ from .opencd import OpenCDAdapter
 from .soulvoice import SoulVoiceAdapter
 
 __all__ = [
+    "AnimeGardenAdapter",
     "DmhyAdapter",
     "HDDolbyAdapter",
     "MikanAdapter",

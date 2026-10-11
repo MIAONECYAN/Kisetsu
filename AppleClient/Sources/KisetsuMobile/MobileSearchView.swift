@@ -6,6 +6,7 @@ struct MobileSearchView: View {
   @State private var showingSites = false
   @State private var showingFilters = false
   @State private var showingSettings = false
+  @AppStorage("searchBrowserMode") private var browserMode = MobileBrowserMode.inApp.rawValue
   @FocusState private var searchFocused: Bool
   @State private var selectedResult: SearchResult?
   @State private var downloadQueue = MobileSearchDownloadQueue()
@@ -159,6 +160,17 @@ struct MobileSearchView: View {
           }
           Button("搜索设置", systemImage: "gearshape") {
             showingSettings = true
+          }
+          Divider()
+          Menu("网页浏览器", systemImage: "safari") {
+            Toggle("内置 Safari 视图", isOn: Binding(
+              get: { MobileBrowserMode(storedValue: browserMode) == .inApp },
+              set: { if $0 { browserMode = MobileBrowserMode.inApp.rawValue } }
+            ))
+            Toggle("外部浏览器", isOn: Binding(
+              get: { MobileBrowserMode(storedValue: browserMode) == .external },
+              set: { if $0 { browserMode = MobileBrowserMode.external.rawValue } }
+            ))
           }
         } label: {
           Label("搜索选项", systemImage: "slider.horizontal.3")
@@ -558,6 +570,9 @@ private struct MobileSearchFilterSheet: View {
 private struct MobileSearchResultDetail: View {
   @EnvironmentObject private var store: AppStore
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.openURL) private var openURL
+  @AppStorage("searchBrowserMode") private var browserMode = MobileBrowserMode.inApp.rawValue
+  @State private var presentedWebPage: MobileWebPage?
   var result: SearchResult
   var identify: () -> Void
   var subscribe: () -> Void
@@ -590,6 +605,9 @@ private struct MobileSearchResultDetail: View {
           if let seeders = result.seeders { LabeledContent("做种", value: seeders.formatted()) }
           if let leechers = result.leechers { LabeledContent("下载", value: leechers.formatted()) }
           if let downloads = result.downloads { LabeledContent("完成", value: downloads.formatted()) }
+          if let webURL = result.detailWebURL {
+            Button("查看网页", systemImage: "safari") { openWebPage(webURL) }
+          }
           if !canDownload {
             Label(MobileSearchDownloadPresentation.unavailableMessage, systemImage: "exclamationmark.triangle")
               .foregroundStyle(.secondary)
@@ -610,6 +628,17 @@ private struct MobileSearchResultDetail: View {
             .disabled(!canDownload)
         }
       }
+      .sheet(item: $presentedWebPage) { page in
+        MobileSafariView(url: page.url)
+      }
+    }
+  }
+
+  private func openWebPage(_ url: URL) {
+    if MobileBrowserMode(storedValue: browserMode) == .external {
+      openURL(url)
+    } else {
+      presentedWebPage = MobileWebPage(url: url)
     }
   }
 }

@@ -1240,6 +1240,14 @@ struct SiteManagementView: View {
       capabilities: ["番组页", "RSS", "追番"]
     ),
     SiteTemplateOption(
+      id: "animegarden",
+      title: "Anime Garden",
+      subtitle: "公开动画资源聚合 API，支持搜索、分页和磁力下载。",
+      primaryURL: "api.animes.garden",
+      symbol: "sparkles.rectangle.stack",
+      capabilities: ["搜索", "分页", "磁力"]
+    ),
+    SiteTemplateOption(
       id: "nyaa",
       title: "Nyaa",
       subtitle: "英文资源站，补充更广的动画搜索来源。",
@@ -1550,7 +1558,7 @@ private struct EmptySiteManagementState: View {
       ContentUnavailableView(
         sitesLoaded ? "还没有添加站点" : "等待后端连接",
         systemImage: sitesLoaded ? "antenna.radiowaves.left.and.right" : "server.rack",
-        description: Text(sitesLoaded ? "打开站点库添加 DMHY、Mikan 或 Nyaa。" : "后端连接后即可保存站点设置。")
+        description: Text(sitesLoaded ? "打开站点库添加 DMHY、Mikan、Nyaa 或 Anime Garden。" : "后端连接后即可保存站点设置。")
       )
       Button(action: onAddSite) {
         Label(sitesLoaded ? "添加站点" : "查看站点库", systemImage: "plus")

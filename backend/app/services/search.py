@@ -15,6 +15,8 @@ MAX_CONCURRENT_SEARCH_SITES = 2
 
 
 def result_dedupe_key(result: SearchResult) -> str:
+    if result.source == "animegarden" and result.detail_url:
+        return f"url:{result.detail_url.casefold()}"
     url = result.magnet_url or result.download_url or result.detail_url
     if url:
         match = re.search(r"btih:([a-zA-Z0-9]+)", url)
@@ -140,7 +142,7 @@ async def search_site_pages(
             diagnostics.completed_all_accessible_pages = True
             diagnostics.stop_reason = "empty_page"
             break
-        if stop_when_no_new_results and page_results and new_count == 0:
+        if stop_when_no_new_results and site_id != "animegarden" and page_results and new_count == 0:
             diagnostics.warnings.append("本页没有新增资源，已停止继续搜索，避免重复结果循环。")
             diagnostics.has_more = False
             diagnostics.completed_all_accessible_pages = True

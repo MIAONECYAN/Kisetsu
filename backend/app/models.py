@@ -42,6 +42,14 @@ LEGACY_SITE_ID_ALIASES = {
     "www.hddolby.com": "hddolby",
     "https://www.hddolby.com": "hddolby",
     "https://www.hddolby.com/index.php": "hddolby",
+    "animegarden": "animegarden",
+    "anime garden": "animegarden",
+    "animes.garden": "animegarden",
+    "api.animes.garden": "animegarden",
+    "https://animes.garden": "animegarden",
+    "https://api.animes.garden": "animegarden",
+    "http://animes.garden": "animegarden",
+    "http://api.animes.garden": "animegarden",
 }
 
 
@@ -1085,10 +1093,10 @@ class MatchDiagnosticSample(BaseModel):
     season_conflict: bool = False
     season_conflict_reason: str | None = None
     title_match_source: Literal["title", "subtitle", "metadata", "unknown"] = "unknown"
-    episode_parse_source: Literal["title", "subtitle", "unknown"] = "unknown"
-    season_parse_source: Literal["title", "subtitle", "unknown"] = "unknown"
-    fansub_parse_source: Literal["title", "subtitle", "unknown"] = "unknown"
-    resolution_parse_source: Literal["title", "subtitle", "unknown"] = "unknown"
+    episode_parse_source: Literal["title", "subtitle", "site_metadata", "unknown"] = "unknown"
+    season_parse_source: Literal["title", "subtitle", "site_metadata", "unknown"] = "unknown"
+    fansub_parse_source: Literal["title", "subtitle", "site_metadata", "unknown"] = "unknown"
+    resolution_parse_source: Literal["title", "subtitle", "site_metadata", "unknown"] = "unknown"
     parse_conflict_reason: str | None = None
 
 

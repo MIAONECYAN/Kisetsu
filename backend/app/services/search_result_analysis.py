@@ -124,6 +124,53 @@ def analyze_search_result(
     *,
     context_season_number: int | None = None,
 ) -> SearchResultAnalysis:
+    if result.source == "animegarden":
+        season = result.parsed_season_number if result.parsed_season_number is not None else context_season_number
+        season_conflict = (
+            result.parsed_season_number is not None
+            and context_season_number is not None
+            and result.parsed_season_number != context_season_number
+        )
+        parsed = ParsedAnimeTitle(
+            original_title=result.title,
+            title=result.normalized_title or result.title,
+            episode=result.parsed_episode,
+            episode_start=result.parsed_episode_start,
+            episode_end=result.parsed_episode_end,
+            is_batch=result.parsed_is_batch,
+            is_special=result.parsed_is_special,
+            season=season,
+            explicit_season_number=result.parsed_season_number,
+            context_season_number=context_season_number,
+            season_conflict=season_conflict,
+            season_conflict_reason=(
+                f"资源季度 S{result.parsed_season_number} 与订阅季度 S{context_season_number} 不一致"
+                if season_conflict else None
+            ),
+            season_source="metadata" if result.parsed_season_number is not None else "subscription" if context_season_number is not None else "unknown",
+            part_number=result.parsed_part_number,
+            fansub=result.parsed_fansub,
+            resolution=result.parsed_resolution,
+            subtitle_language=result.parsed_subtitle_language,
+            display_episode_label=result.parsed_display_episode_label,
+            parse_reason=result.parsed_parse_reason,
+            parse_failure_reason="Anime Garden 未提供集数元数据" if result.parsed_episode is None and not result.parsed_is_batch else None,
+            confidence=1.0 if result.parsed_parse_reason else 0.0,
+        )
+        evidence = "site_metadata" if result.parsed_parse_reason else "unknown"
+        return SearchResultAnalysis(
+            title=parsed,
+            subtitle=None,
+            effective=parsed,
+            episode_source=evidence,
+            season_source="site_metadata" if result.parsed_season_number is not None else "unknown",
+            fansub_source="site_metadata" if result.parsed_fansub else "unknown",
+            resolution_source="site_metadata" if result.parsed_resolution else "unknown",
+            subtitle_language_source="site_metadata" if result.parsed_subtitle_language else "unknown",
+            version_source="unknown",
+            file_size_source="site_metadata" if result.size_bytes is not None else "unknown",
+            conflicts=(),
+        )
     rules = episode_parse_rules or []
     primary = parse_title(
         result.title,
@@ -217,6 +264,11 @@ def enrich_search_result(
     analysis = analyze_search_result(result)
     parsed = analysis.effective
     disabled_keys = {_text_key(name) for name in disabled_fansubs}
+    if result.source == "animegarden":
+        fansub = result.parsed_fansub
+        if fansub is not None and _text_key(fansub) in disabled_keys:
+            fansub = None
+        return result.model_copy(update={"parsed_fansub": fansub})
     parsed_name = parsed.fansub
     known_name = max(
         (name for name in KNOWN_FANSUB_TOKENS if parsed_name and _text_key(name) in _text_key(parsed_name)),
