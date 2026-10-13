@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.6",
-          "buildVersion": "7",
-          "date": "2026-10-11T14:56:47Z",
-          "localizedDescription": "新增 Anime Garden 搜索；修复资源详情链接；iPhone 搜索支持选择内置 Safari 视图或外部浏览器打开网页，并优化 Mikan Project 浏览器菜单。",
+          "version": "1.0.7",
+          "buildVersion": "8",
+          "date": "2026-10-13T23:40:31Z",
+          "localizedDescription": "修复订阅从指定集数开始时，起始集数之前的剧集未显示跳过，以及下载与整理进度未按订阅范围计算的问题。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5711311,
+          "size": 5710958,
           "minOSVersion": "26.0"
         }
       ],
