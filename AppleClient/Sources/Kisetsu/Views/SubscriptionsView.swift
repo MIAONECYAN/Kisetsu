@@ -3608,7 +3608,7 @@ private struct MetadataEpisodeRow: View {
     DisclosureGroup(isExpanded: $expanded) {
       VStack(alignment: .leading, spacing: 6) {
         if isExcludedByEpisodeStart {
-          Text("此集早于订阅起始集数，无需下载")
+          Text("\(episode.derivedStatusDetail ?? "订阅范围外")，无需下载")
             .font(.caption)
             .foregroundStyle(.tertiary)
             .padding(.leading, 30)
@@ -3685,7 +3685,7 @@ private struct MetadataEpisodeRow: View {
 
   private var resourceSummary: String {
     if isExcludedByEpisodeStart {
-      return "起始集数前"
+      return episode.derivedStatusDetail ?? "订阅范围外"
     }
     let count = episode.matchedResources.count
     if count == 0 {

@@ -1322,14 +1322,18 @@ struct SubscriptionProgressMetrics: Hashable {
 
 struct SubscriptionTargetProgressPresentation: Hashable {
   var targetTotal: Int?
+  var catalogTotalIsKnown: Bool
   var downloaded: Int
   var organized: Int
   var startBadgeText: String?
 
   init(subscription: Subscription) {
     let coverage = subscription.coverage
+    catalogTotalIsKnown = coverage?.catalogTotalEpisodes != nil
     if let targetTotal = coverage?.targetTotalEpisodes {
       self.targetTotal = targetTotal
+    } else if coverage?.catalogTotalEpisodes != nil {
+      targetTotal = nil
     } else if let legacyTotal = coverage?.totalEpisodes, legacyTotal > 0 {
       targetTotal = legacyTotal
     } else if let legacyTotal = subscription.episodeCount, legacyTotal > 0 {
@@ -1365,7 +1369,8 @@ struct SubscriptionTargetProgressPresentation: Hashable {
       return "暂无需处理集数"
     }
     if targetTotal == nil {
-      return "下载 \(downloaded) 集 · 整理 \(organized) 集 · 总数待识别"
+      let reason = catalogTotalIsKnown ? "订阅范围待确认" : "总数待识别"
+      return "下载 \(downloaded) 集 · 整理 \(organized) 集 · \(reason)"
     }
     return nil
   }
@@ -2292,7 +2297,9 @@ enum SubscriptionEpisodeScopePresentation {
 
   static func accessibilityLabel(for episode: SubscriptionLogicalEpisodeStatus) -> String {
     if isExcluded(episode) {
-      return "第 \(episode.episodeNumber) 集，起始集数前，已跳过"
+      let reason = episode.derivedStatusDetail?.isEmpty == false
+        ? episode.derivedStatusDetail! : "订阅范围外"
+      return "第 \(episode.episodeNumber) 集，\(reason)，已跳过"
     }
     let status = episode.derivedStatus?.isEmpty == false ? episode.derivedStatus! : episode.downloadStatus
     return "第 \(episode.episodeNumber) 集，\(status)"
@@ -2304,9 +2311,12 @@ enum SubscriptionEpisodeScopePresentation {
   ) -> String {
     let skipped = coverage?.skippedBeforeStart ?? episodes.filter(isExcluded).count
     if let catalogTotal = coverage?.catalogTotalEpisodes {
-      let targetTotal = coverage?.targetTotalEpisodes ?? coverage?.totalEpisodes ?? 0
       var parts = ["总 \(catalogTotal) 集"]
-      parts.append(targetTotal == 0 ? "暂无需处理" : "需处理 \(targetTotal) 集")
+      if let targetTotal = coverage?.targetTotalEpisodes {
+        parts.append(targetTotal == 0 ? "暂无需处理" : "需处理 \(targetTotal) 集")
+      } else {
+        parts.append("需处理范围待确认")
+      }
       if skipped > 0 {
         parts.append("起始前 \(skipped) 集")
       }

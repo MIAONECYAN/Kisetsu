@@ -216,9 +216,8 @@ from app.services.episode_fulfillment import (
     media_target_for_subscription as shared_media_target_for_subscription,
     subscription_detail_metadata_bindings as shared_subscription_detail_metadata_bindings,
     subscription_detail_plex_mappings as shared_subscription_detail_plex_mappings,
-    subscription_episode_in_target_scope as shared_subscription_episode_in_target_scope,
     subscription_logical_episode_numbers as shared_subscription_logical_episode_numbers,
-    subscription_target_episode_counts as shared_subscription_target_episode_counts,
+    subscription_target_episode_start as shared_subscription_target_episode_start,
 )
 from app.services.managed_directories import (
     ManagedDirectoryTarget,
@@ -2575,6 +2574,73 @@ def _episode_ranges(values: set[int]) -> list[str]:
     return ranges
 
 
+@dataclass(frozen=True)
+class _SubscriptionDisplayScope:
+    subscription: Subscription
+    start: int
+    selected: frozenset[int] | None
+    single: int | None
+    valid: bool
+
+    @classmethod
+    def from_subscription(
+        cls, subscription: Subscription, catalog_total: int | None
+    ) -> _SubscriptionDisplayScope:
+        try:
+            selected = parse_episode_filter(subscription.episode_filter)
+            valid = True
+        except ValueError:
+            selected = None
+            valid = False
+        raw_start = max(1, subscription.episode_start or 1)
+        mapped_start = shared_subscription_target_episode_start(subscription)
+        display_start = (
+            max(raw_start, mapped_start)
+            if catalog_total is not None and raw_start <= catalog_total
+            else mapped_start
+        )
+        return cls(
+            subscription=subscription,
+            start=display_start,
+            selected=frozenset(selected) if selected is not None else None,
+            single=(subscription.episode + subscription.episode_offset) if subscription.episode is not None else None,
+            valid=valid,
+        )
+
+    def includes(self, episode: int) -> bool:
+        if episode < self.start:
+            return False
+        if not self.valid:
+            return True
+        if self.selected is not None and episode not in self.selected:
+            return False
+        return self.single is None or episode == self.single
+
+    def target_episodes(self, catalog_total: int | None) -> set[int] | None:
+        if catalog_total is None or not self.valid:
+            return None
+        return {episode for episode in range(1, catalog_total + 1) if self.includes(episode)}
+
+    def first_target(self) -> int | None:
+        if self.selected is not None:
+            candidates = (episode for episode in self.selected if episode >= self.start)
+            if self.single is not None:
+                candidates = (episode for episode in candidates if episode == self.single)
+            return min(candidates, default=None)
+        if self.single is not None:
+            return self.single if self.single >= self.start else None
+        return self.start
+
+    def skipped_before_start(self, catalog_total: int | None) -> int:
+        first = self.first_target()
+        skipped = max(0, first - 1) if first is not None else max(0, self.start - 1)
+        return min(catalog_total, skipped) if catalog_total is not None else skipped
+
+    def exclusion_detail(self, episode: int) -> str:
+        first = self.first_target()
+        return "起始集数前" if episode < (first or self.start) else "指定集数外"
+
+
 def _subscription_coverage_summary(
     subscription: Subscription,
     matches: list[SubscriptionMatch],
@@ -2589,7 +2655,10 @@ def _subscription_coverage_summary(
     catalog_total = catalog_total_episodes
     if catalog_total is None:
         catalog_total = subscription.total_episodes or subscription.metadata_episode_count
-    target_total, skipped_before_start = shared_subscription_target_episode_counts(subscription, catalog_total)
+    scope = _SubscriptionDisplayScope.from_subscription(subscription, catalog_total)
+    target_episodes = scope.target_episodes(catalog_total)
+    target_total = len(target_episodes) if target_episodes is not None else None
+    skipped_before_start = scope.skipped_before_start(catalog_total)
     downloaded_episodes: set[int] = set()
     organized_episodes: set[int] = set()
     has_batch_download = False
@@ -2600,7 +2669,7 @@ def _subscription_coverage_summary(
         covered = {
             episode
             for episode in _subscription_logical_episode_numbers(subscription, match.parsed_title)
-            if shared_subscription_episode_in_target_scope(subscription, episode)
+            if scope.valid and scope.includes(episode)
             and (catalog_total is None or episode <= catalog_total)
         }
         if not covered:
@@ -2625,7 +2694,7 @@ def _subscription_coverage_summary(
             episode
             for (_season, episode), state in media_index.states.items()
             if state.status == "已整理"
-            and shared_subscription_episode_in_target_scope(subscription, episode)
+            and scope.valid and scope.includes(episode)
             and (catalog_total is None or episode <= catalog_total)
         }
         if (
@@ -2637,7 +2706,7 @@ def _subscription_coverage_summary(
                 episode
                 for (season, episode) in media_index.prior_organized_keys
                 if season == target_season
-                and shared_subscription_episode_in_target_scope(subscription, episode)
+                and scope.valid and scope.includes(episode)
                 and (catalog_total is None or episode <= catalog_total)
             )
         downloaded_episodes.update(filesystem_episodes)
@@ -5058,6 +5127,7 @@ def _logical_episode_statuses(
 
     total_episodes, source = _subscription_total_episodes(subscription, metadata_bindings)
     episode_titles, title_source = _episode_titles_from_bindings(metadata_bindings)
+    scope = _SubscriptionDisplayScope.from_subscription(subscription, total_episodes)
 
     season_number = subscription.season or 1
     if resources_by_key and subscription.season is None:
@@ -5085,12 +5155,12 @@ def _logical_episode_statuses(
         ]
         if matching_records:
             last_matched = max(matching_records)
-        excluded_by_episode_start = not shared_subscription_episode_in_target_scope(subscription, episode_number)
+        excluded_by_episode_start = not scope.includes(episode_number)
         if excluded_by_episode_start:
             download_status = "已跳过"
             organize_status = "已跳过"
             derived_status = "已跳过"
-            derived_detail = "起始集数前"
+            derived_detail = scope.exclusion_detail(episode_number)
             auto_organize_status = "已跳过"
             organize_available = False
         else:
@@ -5126,12 +5196,12 @@ def _logical_episode_statuses(
     if not records:
         for (season, episode_number), resources in sorted(resources_by_key.items()):
             episode_title = episode_titles.get(episode_number)
-            excluded_by_episode_start = not shared_subscription_episode_in_target_scope(subscription, episode_number)
+            excluded_by_episode_start = not scope.includes(episode_number)
             if excluded_by_episode_start:
                 download_status = "已跳过"
                 organize_status = "已跳过"
                 derived_status = "已跳过"
-                derived_detail = "起始集数前"
+                derived_detail = scope.exclusion_detail(episode_number)
                 auto_organize_status = "已跳过"
                 organize_available = False
             else:
