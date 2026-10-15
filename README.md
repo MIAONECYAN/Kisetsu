@@ -46,7 +46,7 @@ Kisetsu 将资源搜索、订阅跟踪、下载与整理进度、媒体识别和
 
 ### 搜索、下载与整理
 
-搜索支持 DMHY、Mikan、Nyaa 和已配置的 PT 站点；下载可连接 qBittorrent 或 Transmission。Bangumi/TMDB 元数据辅助识别和整理单集、多集、合集与电影。站点刷流和文件管理提供独立入口。
+搜索支持 DMHY、Mikan、Nyaa、Anime Garden 和已配置的 PT 站点。Anime Garden 可在站点管理中添加并启用，通过公开资源 API 提供分页搜索与磁力链接。下载可连接 qBittorrent 或 Transmission。Bangumi/TMDB 元数据辅助识别和整理单集、多集、合集与电影。站点刷流和文件管理提供独立入口。
 
 ### Plex 播放列表
 
