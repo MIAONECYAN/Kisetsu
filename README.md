@@ -27,7 +27,7 @@
   <a href="NOTICE.md">使用须知</a>
 </p>
 
-Kisetsu 将资源搜索、订阅跟踪、下载与整理进度、媒体识别和 Plex 播放列表放在同一套工作流里。后端由你自行运行，两端原生客户端连接同一服务；资源、凭证和媒体文件仍由你自己的环境管理。
+Kisetsu 将资源搜索、订阅跟踪、下载与整理、媒体识别和 Plex 播放列表放在同一套工作流里。自托管后端为 macOS 与 iPhone 客户端提供服务；资源、凭证和媒体文件由你自己管理。
 
 > [!IMPORTANT]
 > Kisetsu 是采用 [MIT License](LICENSE) 发布的开源软件。Kisetsu 不提供媒体内容、
@@ -36,27 +36,33 @@ Kisetsu 将资源搜索、订阅跟踪、下载与整理进度、媒体识别和
 
 ## 核心能力
 
-### Mikan Bangumi 番组订阅
+### 番组订阅与分组
 
-在 Mikan Project 浏览当季番组和字幕组资源，从选中的资源建立 Mikan 番组订阅；也可通过关键词或 RSS 创建订阅。字幕组、分辨率、集数范围及正则表达式用于收窄匹配。订阅支持持久化分组，并可结合搜索与“订阅完成”状态筛选。
+- **建立订阅：** 在 Mikan Project 浏览当季番组和字幕组资源，并从选中的资源建立订阅；也支持关键词、Mikan 番组地址和 RSS。
+- **收窄匹配：** 按字幕组、分辨率、集数范围或正则表达式筛选资源。
+- **管理列表：** 为订阅分组，并结合搜索与“订阅完成”状态筛选。
 
 ### 进度与持续追更
 
-概览集中显示订阅焦点、下载与待整理任务及最近整理。“订阅完成”依据目标范围内的下载和整理进度判定。新建订阅默认开启总集数自动更新：刷新时只上调可靠元数据中的新增集数；配置并启用 Bark 后，集数增加可发送前后集数通知。
+- **概览与进度：** 查看订阅焦点、下载任务、待整理任务和最近整理。“订阅完成”依据目标范围内的下载与整理结果判定。
+- **总集数更新：** 新建订阅默认开启自动更新；刷新时依据可靠元数据维护总集数。配置并启用 Bark 后，集数增加可收到变更前后的集数通知。
 
 ### 搜索、下载与整理
 
-资源搜索覆盖 DMHY、Mikan、Nyaa、Anime Garden 和已配置的 PT 站点；下载可连接 qBittorrent 或 Transmission。Bangumi/TMDB 元数据辅助识别和整理单集、多集、合集与电影。站点刷流和文件管理提供独立入口。
+- **资源搜索：** 覆盖 DMHY、Mikan、Nyaa、Anime Garden 和已配置的 PT 站点。
+- **下载与整理：** 连接 qBittorrent 或 Transmission；借助 Bangumi/TMDB 元数据识别并整理单集、多集、合集与电影。
+- **其他工具：** 站点刷流和文件管理各有独立入口。
 
 ### Plex 播放列表
 
-连接 Plex 后，可在概览和播放列表页查看已有列表。也可按季度番组数据关联 Plex 节目，选择具体剧集，预览并确认后在 Plex 创建视频播放列表；创建过程不会改动已有列表或媒体文件。
+- **查看列表：** 在概览和播放列表页浏览已有的 Plex 播放列表。
+- **创建清单：** 按季度番组数据关联 Plex 节目，选择剧集并预览；确认后创建视频播放列表，不改动已有列表或媒体文件。
 
 站点、下载器、元数据服务以及可选的 Plex、Bark 均需由使用者自行配置。
 
 ## 界面
 
-以下为现有 macOS 与 iPhone 界面截图，点击可查看原图。
+macOS 与 iPhone 各两张截图，点击可查看原图。
 
 <table>
   <tr><th align="center">macOS · 概览</th><th align="center">iPhone · 概览</th></tr>
@@ -73,7 +79,7 @@ Kisetsu 将资源搜索、订阅跟踪、下载与整理进度、媒体识别和
 
 ## 获取版本
 
-从 [GitHub Releases](https://github.com/MIAONECYAN/Kisetsu/releases/latest) 选择**同一版本**的后端与客户端。订阅分组等较新的功能需要相应版本的后端支持。
+从 [GitHub Releases](https://github.com/MIAONECYAN/Kisetsu/releases/latest) 下载**同一版本**的后端与客户端；新功能可能需要对应版本的后端。
 
 | 下载内容 | 说明 |
 | --- | --- |
@@ -82,7 +88,7 @@ Kisetsu 将资源搜索、订阅跟踪、下载与整理进度、媒体识别和
 | iPhone 客户端 | `arm64` 未签名 IPA，ZIP 内保留原名 `Kisetsu.ipa`；安装前需自行签名 |
 | `SHA256SUMS.txt` | 校验上述三个发布附件 |
 
-### LiveContainer Source
+### LiveContainer 订阅源
 
 在 LiveContainer 的 **Sources** 页面添加以下地址，即可从 Source 下载 iPhone 版：
 
@@ -90,15 +96,13 @@ Kisetsu 将资源搜索、订阅跟踪、下载与整理进度、媒体识别和
 https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/source.json
 ```
 
-Source 指向仓库中原名为 [`Kisetsu.ipa`](LiveContainer/Kisetsu.ipa) 的直链文件，
-与 Release 中供手动下载的 ZIP 并存。IPA 仍未签名，使用前需按 LiveContainer 的
-安装与签名要求配置。后续发布 iPhone 新版本时，维护者需要同步更新
-`LiveContainer/Kisetsu.ipa` 和 [`source.json`](LiveContainer/source.json) 中的版本、大小与日期；
-它们不会自动从 Release 更新。
+该订阅源直接读取仓库中的 [`Kisetsu.ipa`](LiveContainer/Kisetsu.ipa)，与 Release 中供手动下载的 ZIP 并存。IPA 未签名，使用前仍需按 LiveContainer 的要求配置签名。
+
+> 发布 iPhone 新版本时，需同步更新 IPA 和 [`source.json`](LiveContainer/source.json) 中的版本、大小与日期；订阅源不会自动跟随 Release 更新。
 
 ## 快速开始
 
-下面的命令使用完整源码仓库；Release 中的后端源码包只包含 `backend/`，不包含这里使用的 `script/` 和 `.env.example`。
+下面的命令基于完整源码仓库。Release 中的后端包只有 `backend/`，不含这里使用的 `script/` 和 `.env.example`。
 
 ### 运行自托管后端
 
@@ -134,7 +138,7 @@ set +a
 
 ### iPhone 客户端
 
-需要 Xcode 26 或更高版本。在仓库根目录运行：
+使用 Xcode 27 和 iOS 27 SDK，在仓库根目录运行：
 
 ```bash
 ./script/build_mobile_ipa.sh
@@ -145,9 +149,9 @@ set +a
 
 ## 配置与数据
 
-`.env.example` 只包含本地配置模板。运行时凭证应写入未跟踪的 `.env`，或通过客户端
-设置页保存。站点、通知、AI 与 Plex 认证资料存放于独立的
-`kisetsu-secrets.sqlite3`；这是权限隔离存储，不是加密保险库。
+`.env.example` 是配置模板。运行时凭证应写入未跟踪的 `.env`，或通过客户端设置页保存。
+
+站点、通知、AI 与 Plex 认证资料存放于独立的 `kisetsu-secrets.sqlite3`。它采用权限隔离存储，**不是加密保险库**。
 
 不要提交或分享以下内容：
 
