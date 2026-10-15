@@ -590,20 +590,35 @@ def match_results_with_diagnostics(
         if index not in selected_indices:
             selected_indices.append(index)
     diagnostics.sample_excluded_items = [excluded_samples[index][1] for index in selected_indices]
-    _, duplicate_items = dedupe_results(store, matched)
+    _, duplicate_items = dedupe_results(store, matched, subscription_id=subscription.id)
     diagnostics.matched_count = len(matched)
     diagnostics.duplicate_count += len(duplicate_items)
     return matched, diagnostics
 
 
-def dedupe_results(store: Store, results: list[SearchResult]) -> tuple[list[SearchResult], list[SearchResult]]:
+def dedupe_results(
+    store: Store,
+    results: list[SearchResult],
+    *,
+    subscription_id: int | None = None,
+) -> tuple[list[SearchResult], list[SearchResult]]:
     fresh: list[SearchResult] = []
     skipped: list[SearchResult] = []
     for result in results:
-        if store.history_exists(fingerprint_result(result)):
-            skipped.append(result)
-        else:
+        fingerprint = fingerprint_result(result)
+        if not store.history_exists(fingerprint):
             fresh.append(result)
+            continue
+        history = store.get_history_by_fingerprint(fingerprint) if subscription_id is not None else None
+        if (
+            history is not None
+            and history.get("status") == "deleted"
+            and history.get("subscription_id") is not None
+            and history["subscription_id"] != subscription_id
+        ):
+            fresh.append(result)
+        else:
+            skipped.append(result)
     return fresh, skipped
 
 
@@ -658,7 +673,7 @@ def build_refresh_response(
     auto_download: bool = False,
 ) -> RefreshResponse:
     matched, diagnostics = match_results_with_diagnostics(store, subscription, results)
-    fresh, skipped = dedupe_results(store, matched)
+    fresh, skipped = dedupe_results(store, matched, subscription_id=subscription.id)
     added: list[SearchResult] = []
     if auto_download:
         for result in fresh:

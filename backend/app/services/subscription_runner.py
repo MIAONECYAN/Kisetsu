@@ -686,11 +686,15 @@ async def _fetch_bangumi_total_episodes(
 async def _fetch_tmdb_total_episodes(
     tmdb_id: str,
     media_type: str | None,
+    season_number: int | None,
     warnings: list[str],
     *,
     timeout_seconds: float,
-) -> int | None:
+) -> tuple[int, int | None] | None:
     if media_type == "movie":
+        return None
+    if not isinstance(season_number, int) or season_number <= 0:
+        warnings.append("TMDB 总集数：未选择普通季度，已保留现有总集数。")
         return None
     api_key = tmdb_api_key()
     if not api_key:
@@ -705,12 +709,19 @@ async def _fetch_tmdb_total_episodes(
                 "tv",
             )
         item = details.get(str(tmdb_id)) or {}
-        value = item.get("number_of_episodes")
-        if isinstance(value, bool):
+        selected = next(
+            (season for season in (item.get("seasons") or [])
+             if isinstance(season, dict) and season.get("season_number") == season_number),
+            None,
+        )
+        count = selected.get("episode_count") if selected else None
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            warnings.append("TMDB 总集数：所选季度集数未知，已保留现有总集数。")
             return None
-        if isinstance(value, int) and value > 0:
-            return value
-        return None
+        series_total = item.get("number_of_episodes")
+        if not isinstance(series_total, int) or isinstance(series_total, bool) or series_total <= 0:
+            series_total = None
+        return count, series_total
     except asyncio.TimeoutError:
         warnings.append("TMDB 总集数：请求超时，已保留现有总集数。")
     except Exception as exc:
@@ -725,7 +736,7 @@ async def _latest_subscription_total_episodes(
     diagnostics: SearchDiagnostics,
     *,
     timeout_seconds: float,
-) -> tuple[int, str] | None:
+) -> tuple[int, str, int | None] | None:
     bindings = store.list_metadata_bindings_for_target("subscription", str(subscription.id), limit=1)
     if bindings:
         binding = bindings[0]
@@ -737,17 +748,19 @@ async def _latest_subscription_total_episodes(
                 timeout_seconds=timeout_seconds,
             )
             if total is not None:
-                return total, "bangumi"
+                return total, "bangumi", None
         tmdb_id = binding.get("tmdb_id")
         if tmdb_id:
             total = await _fetch_tmdb_total_episodes(
                 str(tmdb_id),
                 binding.get("media_type"),
+                binding.get("season_number"),
                 warnings,
                 timeout_seconds=timeout_seconds,
             )
             if total is not None:
-                return total, "tmdb"
+                return total[0], "tmdb", total[1]
+            return None
     mikan_total = await _fetch_mikan_total_episodes(
         store,
         subscription,
@@ -756,7 +769,7 @@ async def _latest_subscription_total_episodes(
         timeout_seconds=timeout_seconds,
     )
     if isinstance(mikan_total, int) and mikan_total > 0:
-        return mikan_total, "mikan"
+        return mikan_total, "mikan", None
     return None
 
 
@@ -784,7 +797,7 @@ async def _sync_total_episodes(
     if latest is None:
         return subscription, None
 
-    latest_total, source = latest
+    latest_total, source, series_total = latest
     data = store.get_subscription(subscription.id)
     if data is None:
         return subscription, None
@@ -793,11 +806,18 @@ async def _sync_total_episodes(
     old_total = data.get("total_episodes")
     old_total = old_total if isinstance(old_total, int) and not isinstance(old_total, bool) and old_total > 0 else None
     increased = old_total is None or latest_total > old_total
-    if old_total is not None and not increased:
+    correcting_series_total = (
+        source == "tmdb"
+        and data.get("total_episodes_source") == "tmdb"
+        and old_total is not None
+        and old_total == series_total
+        and latest_total < old_total
+    )
+    if old_total is not None and not increased and not correcting_series_total:
         return Subscription(**data), None
 
     data["metadata_episode_count"] = latest_total
-    if increased:
+    if increased or correcting_series_total:
         data["total_episodes"] = latest_total
         data["total_episodes_source"] = source
     try:
@@ -810,7 +830,7 @@ async def _sync_total_episodes(
         warnings.append(f"{source} 总集数：订阅已不存在，未更新。")
         return subscription, None
     authoritative = store.get_subscription(subscription.id)
-    if authoritative is None or (increased and authoritative.get("total_episodes") != latest_total):
+    if authoritative is None or ((increased or correcting_series_total) and authoritative.get("total_episodes") != latest_total):
         warnings.append(f"{source} 总集数：保存后读取结果不一致，已保留当前状态。")
         return subscription, None
     updated_subscription = Subscription(**authoritative)
@@ -970,7 +990,7 @@ async def _refresh_subscription_once(
     diagnostics.completed_all_accessible_pages = search_diagnostics.completed_all_accessible_pages
     diagnostics.reached_internal_safety_limit = search_diagnostics.reached_internal_safety_limit
     diagnostics.has_more = search_diagnostics.has_more
-    fresh, history_skipped = dedupe_results(store, matched)
+    fresh, history_skipped = dedupe_results(store, matched, subscription_id=subscription.id)
     skipped = list(history_skipped)
     download_candidates = list(fresh)
     fulfillment_blocked_fingerprints: set[str] = set()

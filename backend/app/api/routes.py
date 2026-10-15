@@ -98,6 +98,8 @@ from app.models import (
     MetadataMatchRequest,
     MetadataSearchRequest,
     MetadataSearchResponse,
+    TMDBSeasonListResponse,
+    MetadataCandidate,
     MikanProjectResourcesResponse,
     MikanProjectSeasonResponse,
     MikanProjectSettings,
@@ -184,6 +186,7 @@ from app.models import (
     normalize_site_id,
 )
 from app.metadata.bangumi import total_episodes_from_subject
+from app.metadata.base import MetadataAdapterError
 from app.metadata.tmdb import TMDBAdapter
 from app.notifications import NotificationEvent, NotificationService, NotificationSettings, NotificationTestRequest, NotificationTestResponse, notification_settings_response
 from app.notifications.models import NotificationSettingsResponse
@@ -9423,6 +9426,36 @@ async def manage_download_history(
 async def metadata_search(request: MetadataSearchRequest, store: Store = Depends(get_store)) -> MetadataSearchResponse:
     sync_runtime_settings(store)
     return await search_metadata(request)
+
+
+@router.get("/metadata/tmdb/tv/{series_id}/seasons", response_model=TMDBSeasonListResponse)
+async def tmdb_seasons(series_id: int, store: Store = Depends(get_store)) -> TMDBSeasonListResponse:
+    if series_id <= 0:
+        raise HTTPException(status_code=400, detail="无效的 TMDB 剧集 ID")
+    sync_runtime_settings(store)
+    try:
+        return TMDBSeasonListResponse(seasons=await TMDBAdapter().seasons(series_id))
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=502, detail="TMDB 季度列表暂时不可用") from exc
+    except (httpx.RequestError, MetadataAdapterError) as exc:
+        raise HTTPException(status_code=502, detail="无法读取 TMDB 季度列表") from exc
+
+
+@router.get("/metadata/tmdb/tv/{series_id}/seasons/{season_number}", response_model=MetadataCandidate)
+async def tmdb_season_candidate(
+    series_id: int, season_number: int, store: Store = Depends(get_store)
+) -> MetadataCandidate:
+    if series_id <= 0 or season_number <= 0:
+        raise HTTPException(status_code=400, detail="无效的 TMDB 剧集或季度编号")
+    sync_runtime_settings(store)
+    try:
+        return await TMDBAdapter().season_candidate(series_id, season_number)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=502, detail="TMDB 季度详情暂时不可用") from exc
+    except (httpx.RequestError, MetadataAdapterError) as exc:
+        raise HTTPException(status_code=502, detail="无法读取 TMDB 季度详情") from exc
 
 
 @router.post("/metadata/match", response_model=MetadataSearchResponse)

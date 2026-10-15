@@ -70,7 +70,7 @@ class HealthResponse(BaseModel):
     ok: bool = True
     status: str = "ok"
     app: str = "Kisetsu"
-    version: str = "1.0.7"
+    version: str = "1.0.8"
     message: str = "后端连接正常"
     time: datetime
     port: int | None = None
@@ -1608,6 +1608,16 @@ class MetadataSearchResponse(BaseModel):
     recommended_candidate_id: str | None = None
     suggested_mapping: PlexSeasonMapping | None = None
     merge_summary: str | None = None
+
+
+class TMDBSeasonOption(BaseModel):
+    season_number: int
+    name: str
+    episode_count: int | None = None
+
+
+class TMDBSeasonListResponse(BaseModel):
+    seasons: list[TMDBSeasonOption] = Field(default_factory=list)
 
 
 class MetadataMatchRequest(BaseModel):

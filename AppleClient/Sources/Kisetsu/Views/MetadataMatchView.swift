@@ -163,7 +163,8 @@ private struct MetadataCandidateList: View {
           actionHelp: "把这个候选保存为当前资源的番剧识别结果",
           isActionInProgress: store.metadataBindingCandidateID == candidate.id,
           actionDisabled: store.isLoading || store.metadataBindingCandidateID != nil,
-          onSelect: { Task { await store.bind(candidate) } }
+          onSelect: { Task { await store.bind(candidate) } },
+          onBindSeason: { selected in Task { await store.bind(selected) } }
         )
       }
     }
@@ -171,6 +172,8 @@ private struct MetadataCandidateList: View {
 }
 
 struct MetadataCandidateRow: View {
+  @EnvironmentObject private var store: AppStore
+  @StateObject private var seasonSelection = TMDBSeasonSelection()
   var candidate: MetadataCandidate
   var isRecommended: Bool
   var isSelected: Bool
@@ -179,6 +182,9 @@ struct MetadataCandidateRow: View {
   var isActionInProgress: Bool
   var actionDisabled: Bool
   var onSelect: () -> Void
+  var onBindSeason: ((MetadataCandidate) -> Void)? = nil
+
+  private var needsSeason: Bool { candidate.isTMDBSeries && onBindSeason != nil }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -204,7 +210,13 @@ struct MetadataCandidateRow: View {
           }
           .help("打开该候选在来源站点的公开页面")
         }
-        Button(action: onSelect) {
+        Button {
+          if needsSeason {
+            Task { await seasonSelection.select(candidate, store: store) }
+          } else {
+            onSelect()
+          }
+        } label: {
           if isActionInProgress {
             HStack(spacing: 6) {
               ProgressView()
@@ -212,11 +224,38 @@ struct MetadataCandidateRow: View {
               Text("保存中...")
             }
           } else {
-            Label(actionTitle, systemImage: isSelected ? "checkmark.circle.fill" : "checkmark.seal")
+            Label(needsSeason ? "选择季度" : actionTitle, systemImage: isSelected ? "checkmark.circle.fill" : "checkmark.seal")
           }
         }
-        .disabled(actionDisabled)
+        .disabled(actionDisabled || seasonSelection.isLoading)
         .help(actionHelp)
+      }
+      if needsSeason && seasonSelection.candidateID == candidate.id {
+        HStack(spacing: 8) {
+          Picker("季度", selection: Binding(
+            get: { seasonSelection.selectedNumber },
+            set: { number in
+              guard let number else { return }
+              Task { await seasonSelection.choose(number, for: candidate, store: store) }
+            }
+          )) {
+            Text("选择季度").tag(nil as Int?)
+            ForEach(seasonSelection.options) { option in
+              Text(option.displayName).tag(Optional(option.seasonNumber))
+            }
+          }
+          .frame(maxWidth: 260)
+          .disabled(seasonSelection.isLoading || seasonSelection.options.isEmpty)
+          if seasonSelection.isLoading { ProgressView().controlSize(.small) }
+          Button("确认并保存") {
+            guard let selected = seasonSelection.resolvedCandidate else { return }
+            onBindSeason?(selected)
+          }
+          .disabled(seasonSelection.resolvedCandidate == nil || seasonSelection.isLoading || actionDisabled)
+        }
+        if let error = seasonSelection.error {
+          Text(error).font(.caption).foregroundStyle(.secondary)
+        }
       }
       if let original = candidate.originalTitle, original != candidate.title {
         Text(original)
@@ -254,6 +293,10 @@ struct MetadataCandidateRow: View {
       }
     }
     .padding(.vertical, 6)
+    .onChange(of: candidate) { _, _ in seasonSelection.reset() }
+    .onChange(of: store.metadataTargetID) { _, _ in seasonSelection.reset() }
+    .onChange(of: store.backendURL) { _, _ in seasonSelection.reset() }
+    .onDisappear { seasonSelection.reset() }
   }
 }
 

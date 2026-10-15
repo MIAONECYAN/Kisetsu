@@ -96,6 +96,8 @@ def sort_candidates(candidates: list[MetadataCandidate]) -> list[MetadataCandida
 def suggest_mapping(candidate: MetadataCandidate | None) -> PlexSeasonMapping | None:
     if candidate is None:
         return None
+    if candidate.source == "tmdb" and candidate.media_type != "movie" and candidate.season_number is None:
+        return None
     year = year_from_date(candidate.air_date)
     return PlexSeasonMapping(
         subject_key=candidate_key(candidate),

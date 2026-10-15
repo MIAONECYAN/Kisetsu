@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.7",
-          "buildVersion": "8",
-          "date": "2026-10-13T23:40:31Z",
-          "localizedDescription": "修复订阅从指定集数开始时，起始集数之前的剧集未显示跳过，以及下载与整理进度未按订阅范围计算的问题。",
+          "version": "1.0.8",
+          "buildVersion": "9",
+          "date": "2026-10-15T01:00:29Z",
+          "localizedDescription": "TMDB 剧集识别支持选择季度；修复所选季度总集数被全剧集数覆盖，以及新订阅无法重新下载旧订阅已删除资源的问题。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5710958,
+          "size": 5740247,
           "minOSVersion": "26.0"
         }
       ],

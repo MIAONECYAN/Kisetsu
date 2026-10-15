@@ -2532,6 +2532,22 @@ struct MetadataSearchResponse: Codable {
   var mergeSummary: String?
 }
 
+struct TMDBSeasonOption: Codable, Identifiable, Hashable {
+  var seasonNumber: Int
+  var name: String
+  var episodeCount: Int?
+
+  var id: Int { seasonNumber }
+  var displayName: String {
+    let count = episodeCount.map { " · \($0) 集" } ?? " · 集数未知"
+    return "第 \(seasonNumber) 季\(count)"
+  }
+}
+
+struct TMDBSeasonListResponse: Codable {
+  var seasons: [TMDBSeasonOption]
+}
+
 struct MetadataCandidate: Codable, Identifiable, Hashable {
   var source: String
   var externalId: String
@@ -2557,6 +2573,8 @@ struct MetadataCandidate: Codable, Identifiable, Hashable {
   var id: String {
     source == "tmdb" && mediaType == "movie" ? "tmdb:movie:\(externalId)" : "\(source):\(externalId)"
   }
+
+  var isTMDBSeries: Bool { source == "tmdb" && mediaType != "movie" }
 
   enum CodingKeys: String, CodingKey {
     case source

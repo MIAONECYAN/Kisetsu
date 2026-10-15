@@ -882,6 +882,7 @@ private struct MobileSearchTorrentStats: View {
 struct MobileMetadataReviewSheet: View {
   @EnvironmentObject private var store: AppStore
   @Environment(\.dismiss) private var dismiss
+  @StateObject private var seasonSelection = TMDBSeasonSelection()
   @State private var query = ""
   @State private var candidates: [MetadataCandidate] = []
   @State private var selectedID: String?
@@ -920,6 +921,7 @@ struct MobileMetadataReviewSheet: View {
         ForEach(candidates) { candidate in
         Button {
           selectedID = candidate.id
+          Task { await seasonSelection.select(candidate, store: store) }
         } label: {
           HStack(spacing: 12) {
             MobilePosterImage(url: candidate.posterUrl.flatMap(URL.init(string:)), width: 54, height: 78)
@@ -936,6 +938,25 @@ struct MobileMetadataReviewSheet: View {
         .buttonStyle(.plain)
         .disabled(store.metadataBindingCandidateID != nil)
         .accessibilityAddTraits(selectedID == candidate.id ? .isSelected : [])
+        if selectedID == candidate.id && candidate.isTMDBSeries {
+          Picker("季度", selection: Binding(
+            get: { seasonSelection.selectedNumber },
+            set: { number in
+              guard let number else { return }
+              Task { await seasonSelection.choose(number, for: candidate, store: store) }
+            }
+          )) {
+            Text("选择季度").tag(nil as Int?)
+            ForEach(seasonSelection.options) { option in
+              Text(option.displayName).tag(Optional(option.seasonNumber))
+            }
+          }
+          .disabled(seasonSelection.isLoading || seasonSelection.options.isEmpty)
+          if seasonSelection.isLoading { ProgressView("正在读取季度") }
+          if let error = seasonSelection.error {
+            Text(error).font(.caption).foregroundStyle(.secondary)
+          }
+        }
         }
       }
       .disabled(store.metadataBindingCandidateID != nil)
@@ -948,9 +969,18 @@ struct MobileMetadataReviewSheet: View {
         ToolbarItem(placement: .confirmationAction) {
           Button("确认") {
             guard let candidate = candidates.first(where: { $0.id == selectedID }) else { return }
-            Task { await store.bind(candidate) }
+            let selected: MetadataCandidate?
+            if candidate.isTMDBSeries {
+              selected = seasonSelection.candidateID == candidate.id ? seasonSelection.resolvedCandidate : nil
+            } else {
+              selected = candidate
+            }
+            guard let selected else { return }
+            Task { await store.bind(selected) }
           }
-          .disabled(selectedID == nil || isSearching || store.metadataBindingCandidateID != nil)
+          .disabled(selectedID == nil || isSearching || store.metadataBindingCandidateID != nil || seasonSelection.isLoading ||
+                    (candidates.first(where: { $0.id == selectedID })?.isTMDBSeries == true &&
+                     (seasonSelection.candidateID != selectedID || seasonSelection.resolvedCandidate == nil)))
         }
       }
     }
@@ -960,7 +990,12 @@ struct MobileMetadataReviewSheet: View {
       candidates = store.metadataCandidates
       if candidates.isEmpty { search() }
     }
-    .onDisappear { cancelSearch() }
+    .onDisappear { cancelSearch(); seasonSelection.reset() }
+    .onChange(of: store.backendURL) { _, _ in
+      cancelSearch()
+      selectedID = nil
+      seasonSelection.reset()
+    }
   }
 
   private func cancelSearch() {
@@ -987,7 +1022,8 @@ struct MobileMetadataReviewSheet: View {
           return
         }
         candidates = response.candidates
-        if !candidates.contains(where: { $0.id == selectedID }) { selectedID = nil }
+        selectedID = nil
+        seasonSelection.reset()
         isSearching = false
       } catch {
         guard !Task.isCancelled, searchSequence.accepts(operationID) else { return }

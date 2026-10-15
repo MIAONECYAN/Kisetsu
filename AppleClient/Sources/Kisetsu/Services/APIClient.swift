@@ -1154,6 +1154,14 @@ struct APIClient {
     )
   }
 
+  func tmdbSeasons(seriesID: String) async throws -> TMDBSeasonListResponse {
+    try await request("api/metadata/tmdb/tv/\(seriesID)/seasons")
+  }
+
+  func tmdbSeasonCandidate(seriesID: String, seasonNumber: Int) async throws -> MetadataCandidate {
+    try await request("api/metadata/tmdb/tv/\(seriesID)/seasons/\(seasonNumber)")
+  }
+
   func metadataMatch(title: String, year: Int? = nil, downloadRecordID: Int? = nil, mediaType: String = "anime") async throws -> MetadataSearchResponse {
     try await request(
       "api/metadata/match",

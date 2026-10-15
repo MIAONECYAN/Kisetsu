@@ -1776,11 +1776,17 @@ class Store:
                 and not isinstance(metadata_episode_count, bool)
                 and metadata_episode_count > 0
             )
+            tmdb_season_rebind = (
+                metadata_source == "tmdb"
+                and isinstance(data.get("season_number"), int)
+                and data["season_number"] > 0
+                and subscription_data.get("total_episodes_source") == "tmdb"
+            )
             if valid_metadata_count and (
-                not isinstance(current_total, int) or metadata_episode_count >= current_total
+                tmdb_season_rebind or not isinstance(current_total, int) or metadata_episode_count >= current_total
             ):
                 subscription_data["metadata_episode_count"] = metadata_episode_count
-                if not isinstance(current_total, int) or metadata_episode_count > current_total:
+                if tmdb_season_rebind or not isinstance(current_total, int) or metadata_episode_count > current_total:
                     subscription_data["total_episodes"] = metadata_episode_count
                     subscription_data["total_episodes_source"] = metadata_source
 

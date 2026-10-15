@@ -1,5 +1,103 @@
 import Foundation
 
+@MainActor
+final class TMDBSeasonSelection: ObservableObject {
+  @Published private(set) var options: [TMDBSeasonOption] = []
+  @Published private(set) var selectedNumber: Int?
+  @Published private(set) var resolvedCandidate: MetadataCandidate?
+  @Published private(set) var isLoading = false
+  @Published private(set) var error: String?
+  @Published private(set) var candidateID: String?
+  private var generation = 0
+
+  func reset() {
+    generation += 1
+    candidateID = nil
+    options = []
+    selectedNumber = nil
+    resolvedCandidate = nil
+    isLoading = false
+    error = nil
+  }
+
+  func select(_ candidate: MetadataCandidate, store: AppStore) async {
+    reset()
+    candidateID = candidate.id
+    guard candidate.isTMDBSeries else {
+      resolvedCandidate = candidate
+      return
+    }
+    generation += 1
+    let operation = generation
+    let backendURL = store.backendURL
+    let targetType = store.metadataTargetType
+    let targetID = store.metadataTargetID
+    isLoading = true
+    do {
+      let response = try await store.client.tmdbSeasons(seriesID: candidate.externalId)
+      guard generation == operation, candidateID == candidate.id, store.backendURL == backendURL,
+            store.metadataTargetType == targetType, store.metadataTargetID == targetID else { return }
+      options = response.seasons.sorted { $0.seasonNumber < $1.seasonNumber }
+      guard !options.isEmpty else {
+        error = "TMDB 没有可选的普通季度。"
+        isLoading = false
+        return
+      }
+      if targetType == "subscription" {
+        let bindings = try await store.client.metadataBindings(
+          targetType: "subscription", targetID: targetID
+        )
+        guard generation == operation, candidateID == candidate.id, store.backendURL == backendURL,
+              store.metadataTargetType == targetType, store.metadataTargetID == targetID else { return }
+        if let saved = bindings.first, saved.tmdbId == candidate.externalId,
+           let number = saved.seasonNumber {
+          if options.contains(where: { $0.seasonNumber == number }) {
+            isLoading = false
+            await choose(number, for: candidate, store: store)
+            return
+          }
+          error = "原先选择的第 \(number) 季已不可用，请重新选择。"
+        }
+      }
+      isLoading = false
+    } catch {
+      guard generation == operation, candidateID == candidate.id, store.backendURL == backendURL else { return }
+      self.error = "无法读取 TMDB 季度：\(error.localizedDescription)"
+      isLoading = false
+    }
+  }
+
+  func choose(_ number: Int, for candidate: MetadataCandidate, store: AppStore) async {
+    guard candidateID == candidate.id, options.contains(where: { $0.seasonNumber == number }) else { return }
+    generation += 1
+    let operation = generation
+    let backendURL = store.backendURL
+    let targetID = store.metadataTargetID
+    selectedNumber = number
+    resolvedCandidate = nil
+    error = nil
+    isLoading = true
+    do {
+      let detail = try await store.client.tmdbSeasonCandidate(seriesID: candidate.externalId, seasonNumber: number)
+      guard generation == operation, candidateID == candidate.id, store.backendURL == backendURL,
+            store.metadataTargetID == targetID else { return }
+      guard detail.externalId == candidate.externalId, detail.seasonNumber == number,
+            let count = detail.episodeCount, count > 0 else {
+        error = "该季度的集数尚不可靠，暂不能保存。"
+        isLoading = false
+        return
+      }
+      resolvedCandidate = detail
+      isLoading = false
+    } catch {
+      guard generation == operation, candidateID == candidate.id, store.backendURL == backendURL,
+            store.metadataTargetID == targetID else { return }
+      self.error = "无法读取所选季度：\(error.localizedDescription)"
+      isLoading = false
+    }
+  }
+}
+
 enum AppStoreError: LocalizedError {
   case userFacing(String)
 
