@@ -70,7 +70,7 @@ class HealthResponse(BaseModel):
     ok: bool = True
     status: str = "ok"
     app: str = "Kisetsu"
-    version: str = "1.0.8"
+    version: str = "1.0.9"
     message: str = "后端连接正常"
     time: datetime
     port: int | None = None

@@ -43,6 +43,8 @@ class TMDBAdapter(BaseMetadataAdapter):
         results: list[dict[str, Any]],
         api_key: str,
         media_type: str = "tv",
+        *,
+        strict: bool = False,
     ) -> dict[str, dict[str, Any]]:
         details: dict[str, dict[str, Any]] = {}
         for item in results:
@@ -57,7 +59,9 @@ class TMDBAdapter(BaseMetadataAdapter):
                     "append_to_response": "external_ids",
                 },
             )
-            if response.status_code >= 400:
+            if strict:
+                response.raise_for_status()
+            elif response.status_code >= 400:
                 continue
             detail = response.json()
             merged = dict(item)

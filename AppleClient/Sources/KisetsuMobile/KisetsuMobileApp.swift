@@ -150,8 +150,9 @@ struct KisetsuMobileApp: App {
          let url = try? BackendEndpoint.normalizedURL(raw), url.host == "127.0.0.1", url.port != nil {
         appStore.fixtureClient = APIClient(baseURL: url.absoluteString)
       } else {
+        let fixtureLatencyMS = min(max(Int(environment["KISETSU_MOBILE_FIXTURE_LATENCY_MS"] ?? "") ?? 400, 0), 5_000)
         appStore.fixtureClient = MobileAutoRefreshFixture(
-          latency: .milliseconds(400),
+          latency: .milliseconds(fixtureLatencyMS),
           failStart: environment["KISETSU_MOBILE_AUTO_REFRESH_FAILURE"] == "1"
         ).client()
       }

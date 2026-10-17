@@ -6,6 +6,7 @@ import binascii
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -24,6 +25,7 @@ from app.core.downloaders import (
 from app.core.qbittorrent import QbittorrentClient
 from app.db import Store
 from app.metadata.bangumi import total_episodes_from_subject
+from app.metadata.base import describe_metadata_error
 from app.metadata.tmdb import TMDBAdapter
 from app.models import EpisodeParseRule, QbittorrentConfig, RefreshAllResponse, RefreshResponse, SearchDiagnostics, SearchResult, SiteSearchDiagnostics, Subscription, SubscriptionCreate, SubscriptionMatch
 from app.notifications.service import NotificationService
@@ -60,7 +62,6 @@ from app.services.title_parser import parse_title
 from app.sites import describe_site_error, get_site_adapter, site_usage_restriction
 from app.sites.rate_limiter import drain_rate_limit_events
 from app.services.mikan_project import fetch_bangumi_episodes, fetch_bangumi_subject
-from app.settings import tmdb_api_key
 
 TASK_TEXT_RE = re.compile(r"[^0-9a-z\u4e00-\u9fff]+", re.IGNORECASE)
 TASK_TOKEN_RE = re.compile(r"[a-z0-9]+|[\u4e00-\u9fff]+", re.IGNORECASE)
@@ -684,6 +685,7 @@ async def _fetch_bangumi_total_episodes(
 
 
 async def _fetch_tmdb_total_episodes(
+    store: Store,
     tmdb_id: str,
     media_type: str | None,
     season_number: int | None,
@@ -696,7 +698,13 @@ async def _fetch_tmdb_total_episodes(
     if not isinstance(season_number, int) or season_number <= 0:
         warnings.append("TMDB 总集数：未选择普通季度，已保留现有总集数。")
         return None
-    api_key = tmdb_api_key()
+    api_key = (os.getenv("TMDB_API_KEY") or "").strip()
+    if not api_key:
+        try:
+            api_key = str((store.get_runtime_config("metadata") or {}).get("tmdb_api_key") or "").strip()
+        except Exception:
+            warnings.append("TMDB 总集数：配置读取失败，已保留现有总集数。")
+            return None
     if not api_key:
         warnings.append("TMDB 总集数：API Key 未配置，已保留现有总集数。")
         return None
@@ -707,6 +715,7 @@ async def _fetch_tmdb_total_episodes(
                 [{"id": tmdb_id}],
                 api_key,
                 "tv",
+                strict=True,
             )
         item = details.get(str(tmdb_id)) or {}
         selected = next(
@@ -722,10 +731,15 @@ async def _fetch_tmdb_total_episodes(
         if not isinstance(series_total, int) or isinstance(series_total, bool) or series_total <= 0:
             series_total = None
         return count, series_total
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, httpx.TimeoutException):
         warnings.append("TMDB 总集数：请求超时，已保留现有总集数。")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 429:
+            warnings.append("TMDB 总集数：请求受到频率限制，已保留现有总集数。")
+        else:
+            warnings.append(f"TMDB 总集数：{describe_metadata_error(exc)}")
     except Exception as exc:
-        warnings.append(f"TMDB 总集数：{describe_site_error(exc)}")
+        warnings.append(f"TMDB 总集数：{describe_metadata_error(exc)}")
     return None
 
 
@@ -752,6 +766,7 @@ async def _latest_subscription_total_episodes(
         tmdb_id = binding.get("tmdb_id")
         if tmdb_id:
             total = await _fetch_tmdb_total_episodes(
+                store,
                 str(tmdb_id),
                 binding.get("media_type"),
                 binding.get("season_number"),

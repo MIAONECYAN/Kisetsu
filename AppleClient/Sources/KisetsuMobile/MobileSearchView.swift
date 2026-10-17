@@ -70,9 +70,14 @@ struct MobileSearchView: View {
             }
 
             Spacer()
-            Text("\(store.visibleSearchResults.count) 个结果")
-              .font(.caption.monospacedDigit())
-              .foregroundStyle(.secondary)
+            if isSearching {
+              ProgressView("正在搜索")
+                .controlSize(.small)
+            } else {
+              Text("\(store.visibleSearchResults.count) 个结果")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            }
           }
           .listRowBackground(Color.clear)
         }
@@ -251,7 +256,7 @@ struct MobileSearchView: View {
   private func resultActions(_ result: SearchResult) -> some View {
     Button("查看详情", systemImage: "info.circle") { selectedResult = result }
     Button("识别番剧", systemImage: "sparkles") { identify(result) }
-    Button("智能订阅", systemImage: "dot.radiowaves.left.and.right") { smartSubscribe(result) }
+    Button("智能订阅", systemImage: MobileMikanPresentation.smartSubscriptionSymbol) { smartSubscribe(result) }
     if MobileSearchDownloadPresentation.isDownloadable(result) {
       Button("添加到下载", systemImage: "arrow.down.circle") { presentDownload(result) }
     } else {
@@ -620,7 +625,7 @@ private struct MobileSearchResultDetail: View {
         ToolbarItemGroup(placement: .bottomBar) {
           Button("识别", systemImage: "sparkles") { dismiss(); identify() }
           Spacer()
-          Button("订阅", systemImage: "dot.radiowaves.left.and.right") { dismiss(); subscribe() }
+          Button("订阅", systemImage: MobileMikanPresentation.smartSubscriptionSymbol) { dismiss(); subscribe() }
           Spacer()
           Button("下载", systemImage: "arrow.down.circle") { download() }
             .labelStyle(.iconOnly)

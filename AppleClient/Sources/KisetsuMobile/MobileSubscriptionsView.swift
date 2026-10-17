@@ -1273,6 +1273,7 @@ struct MobileSubscriptionEditorView: View {
         Section("来源站点") {
           ForEach(store.subscriptionSiteOptions) { site in
             Toggle(site.label, isOn: siteBinding(site.id))
+              .tint(.blue)
           }
         }
 
@@ -1381,6 +1382,7 @@ struct MobileSubscriptionEditorView: View {
             .keyboardType(.numbersAndPunctuation)
           MobileFormValidationMessage(message: episodeOffsetValidationMessage)
           Toggle("刷新时自动更新总集数", isOn: $store.subscriptionAutoUpdateTotalEpisodes)
+            .tint(.blue)
         }
 
         Section("集数识别") {
@@ -1423,6 +1425,7 @@ struct MobileSubscriptionEditorView: View {
         Section {
           DisclosureGroup(isExpanded: $isAdvancedMatchingExpanded) {
             Toggle("启用正则表达式", isOn: $store.subscriptionRegexEnabled)
+              .tint(.blue)
             MobileSubscriptionTextEditor(
               label: "资源标题正则表达式",
               hint: "对资源主标题与副标题进行匹配；留空或关闭时不参与匹配。",
@@ -1443,8 +1446,11 @@ struct MobileSubscriptionEditorView: View {
 
         Section {
           Toggle("启用订阅", isOn: $store.subscriptionEnabled)
+            .tint(.blue)
           Toggle("自动下载", isOn: $store.subscriptionAutoDownload)
+            .tint(.blue)
           Toggle("下载完成后自动整理", isOn: $store.subscriptionAutoOrganize)
+            .tint(.blue)
           Picker("整理后任务处理", selection: $store.subscriptionPostOrganizeAction) {
             Text("使用全局默认").tag("default")
             Text("继续做种").tag("keep_seeding")
@@ -1489,6 +1495,7 @@ struct MobileSubscriptionEditorView: View {
             }
             if store.subscriptionSeedingPolicyMode == "custom" {
               Toggle("目标做种时间", isOn: $store.subscriptionSeedingTimeEnabled)
+                .tint(.blue)
               if store.subscriptionSeedingTimeEnabled {
                 MobileSubscriptionTextField(
                   label: "做种时长（小时）",
@@ -1498,6 +1505,7 @@ struct MobileSubscriptionEditorView: View {
                 .keyboardType(.decimalPad)
               }
               Toggle("目标分享率", isOn: $store.subscriptionSeedingRatioEnabled)
+                .tint(.blue)
               if store.subscriptionSeedingRatioEnabled {
                 MobileSubscriptionTextField(
                   label: "目标分享率（%）",
