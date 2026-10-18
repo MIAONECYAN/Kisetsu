@@ -8,11 +8,16 @@ import unicodedata
 from urllib.parse import parse_qs, urlparse
 
 from app.db import Store
-from app.keyword_expression import KeywordExpressionError, keyword_expression_matches
+from app.keyword_expression import KeywordExpressionError, keyword_expression_matches, parse_keyword_expression_items
 from app.models import EpisodeParseRule, MatchDiagnostics, MatchDiagnosticSample, RefreshResponse, SearchResult, Subscription
-from app.services.episode_fulfillment import subscription_episode_range_reaches_target
+from app.services.episode_fulfillment import (
+    covered_episode_numbers,
+    subscription_episode_range_reaches_target,
+    subscription_logical_episode_numbers,
+)
 from app.services.downloads import resource_total_size_bytes
 from app.services.search import result_dedupe_key
+from app.services.season_rewrite import rewritten_season
 from app.services.search_result_analysis import (
     analyze_search_result,
     combined_search_result_text,
@@ -133,15 +138,21 @@ def _subscription_bangumi_ids(store: Store | None, subscription: Subscription) -
     return ids
 
 
-def title_match_source(subscription: Subscription, result: SearchResult) -> str | None:
+def title_match_evidence(subscription: Subscription, result: SearchResult) -> tuple[str | None, str | None]:
     if _has_explicit_mikan_source(subscription) and result.source == "mikan":
-        return "metadata"
-    alias_keys = [compact_match_text(alias) for alias in subscription_aliases(subscription)]
+        return "metadata", None
+    aliases = subscription_aliases(subscription)
     for source, value in search_result_text_fields(result):
         text = compact_match_text(value)
-        if any(alias and alias in text for alias in alias_keys):
-            return source
-    return None
+        for alias in aliases:
+            key = compact_match_text(alias)
+            if key and key in text:
+                return source, alias
+    return None, None
+
+
+def title_match_source(subscription: Subscription, result: SearchResult) -> str | None:
+    return title_match_evidence(subscription, result)[0]
 
 
 def title_matches_subscription(subscription: Subscription, result: SearchResult) -> bool:
@@ -278,7 +289,15 @@ def analyze_match(
         season_rewrite=subscription.season_rewrite,
     )
     parsed = analysis.effective
-    matched_title_source = title_match_source(subscription, result)
+    matched_title_source, matched_title_alias = title_match_evidence(subscription, result)
+    raw_episodes = covered_episode_numbers(parsed.episode, parsed.episode_start, parsed.episode_end)
+    logical_episodes = subscription_logical_episode_numbers(subscription, parsed)
+    rewrite_target = rewritten_season(parsed.explicit_season_number, subscription.season_rewrite)
+    rewritten = (
+        parsed.explicit_season_number is not None
+        and parsed.effective_season_number is not None
+        and rewrite_target != parsed.explicit_season_number
+    )
     sample = MatchDiagnosticSample(
         title=result.title,
         source=result.source,
@@ -314,6 +333,14 @@ def analyze_match(
         fansub_parse_source=analysis.fansub_source,
         resolution_parse_source=analysis.resolution_source,
         parse_conflict_reason="；".join(analysis.conflicts) or None,
+        matched_title_alias=matched_title_alias,
+        season_rewrite_from=parsed.explicit_season_number if rewritten else None,
+        season_rewrite_to=rewrite_target if rewritten else None,
+        raw_episode_start=min(raw_episodes) if raw_episodes else None,
+        raw_episode_end=max(raw_episodes) if raw_episodes else None,
+        logical_episode_start=min(logical_episodes) if logical_episodes else None,
+        logical_episode_end=max(logical_episodes) if logical_episodes else None,
+        episode_offset_applied=subscription.episode_offset if raw_episodes and logical_episodes and raw_episodes != logical_episodes else 0,
     )
     if parsed.episode is None:
         parse_failed = True
@@ -377,6 +404,17 @@ def analyze_match(
     except KeywordExpressionError as exc:
         sample.reason = f"排除词规则无效：{exc}"
         return False, "excluded_by_exclude", sample
+
+    sample.include_keyword_hits = [
+        term for clause in parse_keyword_expression_items(subscription.include_keywords)
+        for term in clause.terms if term_in_result(term, result)
+    ]
+    sample.exclude_keyword_hits = [
+        term for clause in parse_keyword_expression_items(subscription.exclude_keywords)
+        for term in clause.terms if term_in_result(term, result)
+    ]
+    sample.include_keyword_passed = include_matches if subscription.include_keywords else None
+    sample.exclude_keyword_matched = exclude_matches if subscription.exclude_keywords else None
 
     def include_passes() -> bool:
         return not subscription.include_keywords or include_matches
@@ -451,11 +489,16 @@ def analyze_match(
 
     if parse_failed:
         sample.reason = "番名已匹配，但集数未识别"
+        sample.matched = True
+        sample.reason_code = "parse_failed_count"
         return True, "parse_failed_count", sample if include_matched_sample else None
     if subscription.season is not None:
         sample.reason = "已匹配"
+        sample.matched = True
+        sample.reason_code = "season_matched_count"
         return True, "season_matched_count", sample if include_matched_sample else None
     sample.reason = "已匹配"
+    sample.matched = True
     return True, None, sample if include_matched_sample else None
 
 
@@ -519,6 +562,9 @@ def match_results_with_diagnostics(
     subscription: Subscription,
     results: list[SearchResult],
     episode_parse_rules: list[EpisodeParseRule] | None = None,
+    *,
+    evaluations: list[MatchDiagnosticSample] | None = None,
+    evaluation_limit: int = 100,
 ) -> tuple[list[SearchResult], MatchDiagnostics]:
     matched: list[SearchResult] = []
     diagnostics = MatchDiagnostics(total_fetched=len(results))
@@ -546,6 +592,11 @@ def match_results_with_diagnostics(
             subscription_bangumi_ids=subscription_bangumi_ids,
             include_matched_sample=True,
         )
+        if sample is not None:
+            sample.matched = is_match
+            sample.reason_code = reason_key
+            if evaluations is not None and len(evaluations) < evaluation_limit:
+                evaluations.append(sample)
         if is_match:
             matched.append(result)
             increment(reason_key)

@@ -71,7 +71,7 @@ class HealthResponse(BaseModel):
     ok: bool = True
     status: str = "ok"
     app: str = "Kisetsu"
-    version: str = "1.0.10"
+    version: str = "1.0.11"
     message: str = "后端连接正常"
     time: datetime
     port: int | None = None
@@ -1105,6 +1105,20 @@ class MatchDiagnosticSample(BaseModel):
     fansub_parse_source: Literal["title", "subtitle", "site_metadata", "unknown"] = "unknown"
     resolution_parse_source: Literal["title", "subtitle", "site_metadata", "unknown"] = "unknown"
     parse_conflict_reason: str | None = None
+    matched: bool = False
+    reason_code: str | None = None
+    matched_title_alias: str | None = None
+    include_keyword_hits: list[str] = Field(default_factory=list)
+    exclude_keyword_hits: list[str] = Field(default_factory=list)
+    include_keyword_passed: bool | None = None
+    exclude_keyword_matched: bool | None = None
+    season_rewrite_from: int | None = None
+    season_rewrite_to: int | None = None
+    raw_episode_start: int | None = None
+    raw_episode_end: int | None = None
+    logical_episode_start: int | None = None
+    logical_episode_end: int | None = None
+    episode_offset_applied: int = 0
 
 
 class MatchDiagnostics(BaseModel):
@@ -1151,6 +1165,8 @@ class SubscriptionTestMatchResponse(BaseModel):
     excluded: list[MatchDiagnosticSample] = Field(default_factory=list)
     diagnostics: MatchDiagnostics = Field(default_factory=MatchDiagnostics)
     warnings: list[str] = Field(default_factory=list)
+    evaluations: list[MatchDiagnosticSample] = Field(default_factory=list)
+    evaluations_truncated: bool = False
 
 
 class RssTestRequest(BaseModel):
@@ -1362,6 +1378,8 @@ class SubscriptionEpisodeResource(BaseModel):
     logical_episode_end: int | None = None
     episode_offset_applied: int = 0
     episode_mapping_label: str | None = None
+    season_rewrite_from: int | None = None
+    season_rewrite_to: int | None = None
     is_batch: bool = False
     is_multi_episode: bool = False
 
@@ -1977,6 +1995,8 @@ class SubscriptionMatch(BaseModel):
     logical_episode_end: int | None = None
     episode_offset_applied: int = 0
     episode_mapping_label: str | None = None
+    season_rewrite_from: int | None = None
+    season_rewrite_to: int | None = None
 
 
 class PlexSeasonMapping(BaseModel):

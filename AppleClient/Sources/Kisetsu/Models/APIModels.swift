@@ -1802,6 +1802,20 @@ struct MatchDiagnosticSample: Codable, Identifiable, Hashable {
   var fansubParseSource: String?
   var resolutionParseSource: String?
   var parseConflictReason: String?
+  var matched: Bool?
+  var reasonCode: String?
+  var matchedTitleAlias: String?
+  var includeKeywordHits: [String]?
+  var excludeKeywordHits: [String]?
+  var includeKeywordPassed: Bool?
+  var excludeKeywordMatched: Bool?
+  var seasonRewriteFrom: Int?
+  var seasonRewriteTo: Int?
+  var rawEpisodeStart: Int?
+  var rawEpisodeEnd: Int?
+  var logicalEpisodeStart: Int?
+  var logicalEpisodeEnd: Int?
+  var episodeOffsetApplied: Int?
 }
 
 struct MatchDiagnostics: Codable, Hashable {
@@ -1848,6 +1862,8 @@ struct SubscriptionTestMatchResponse: Codable {
   var excluded: [MatchDiagnosticSample]
   var diagnostics: MatchDiagnostics
   var warnings: [String]
+  var evaluations: [MatchDiagnosticSample]?
+  var evaluationsTruncated: Bool?
 }
 
 struct RssTestRequest: Codable {
@@ -2164,6 +2180,8 @@ struct SubscriptionMatch: Codable, Identifiable, Hashable {
   var logicalEpisodeEnd: Int?
   var episodeOffsetApplied: Int?
   var episodeMappingLabel: String?
+  var seasonRewriteFrom: Int?
+  var seasonRewriteTo: Int?
 
   var stableDisplayID: String {
     let resourceKey = [
@@ -2252,6 +2270,8 @@ struct SubscriptionEpisodeResource: Codable, Identifiable, Hashable {
   var logicalEpisodeEnd: Int?
   var episodeOffsetApplied: Int?
   var episodeMappingLabel: String?
+  var seasonRewriteFrom: Int?
+  var seasonRewriteTo: Int?
   var isBatch: Bool?
   var isMultiEpisode: Bool?
   var size: String?
@@ -3575,3 +3595,146 @@ struct FileBrowserOperationStatus: Codable, Hashable, Identifiable {
 }
 
 struct FileBrowserCancelRequest: Codable { var editToken: String }
+
+struct SubscriptionMatchTestSession: Identifiable {
+  let id = UUID()
+  let payload: SubscriptionCreate?
+  let validationError: String?
+  let backendURL: String
+  let backendRevision: UInt64
+}
+
+enum SubscriptionMatchResultFilter: String, CaseIterable, Identifiable {
+  case all = "全部"
+  case matched = "匹配"
+  case excluded = "排除"
+
+  var id: Self { self }
+
+  func includes(_ sample: MatchDiagnosticSample) -> Bool {
+    switch self {
+    case .all: true
+    case .matched: sample.matched == true
+    case .excluded: sample.matched == false
+    }
+  }
+
+  var emptyTitle: String {
+    switch self {
+    case .all: "没有可检查的资源"
+    case .matched: "没有匹配的资源"
+    case .excluded: "没有被排除的资源"
+    }
+  }
+}
+
+struct SubscriptionMatchResultEntry: Identifiable {
+  let id: Int
+  let sample: MatchDiagnosticSample
+}
+
+enum SubscriptionMatchEvidence {
+  struct Detail: Hashable {
+    let label: String
+    let value: String
+  }
+
+  static func userFacingWarnings(_ warnings: [String]) -> [String] {
+    warnings.filter { warning in
+      let prefix = "使用 mikan bangumi id="
+      let suffix = " 抓取资源。"
+      guard warning.hasPrefix(prefix), warning.hasSuffix(suffix) else { return true }
+      let id = warning.dropFirst(prefix.count).dropLast(suffix.count)
+      return id.isEmpty || !id.allSatisfy(\.isNumber)
+    }
+  }
+
+  static func excludedCount(_ diagnostics: MatchDiagnostics) -> Int {
+    diagnostics.excludedByTitle
+      + diagnostics.excludedByFansub
+      + diagnostics.excludedByInclude
+      + diagnostics.excludedByExclude
+      + diagnostics.excludedByResolution
+      + (diagnostics.excludedBySize ?? 0)
+      + diagnostics.excludedByRegex
+      + (diagnostics.excludedByBatchPolicy ?? 0)
+      + (diagnostics.excludedByEpisodeCoverage ?? 0)
+      + (diagnostics.excludedBySeasonMismatch ?? 0)
+      + (diagnostics.excludedByMetadataMismatch ?? 0)
+      + (diagnostics.excludedByBangumiIdMismatch ?? 0)
+  }
+
+  static func seasonRewrite(from original: Int?, to effective: Int?) -> String? {
+    guard let original, let effective, original != effective else { return nil }
+    return String(format: "Season %02d → Season %02d", original, effective)
+  }
+
+  static func episodeRange(start: Int?, end: Int?) -> String? {
+    guard let start else { return nil }
+    if let end, end != start { return "\(start)–\(end)" }
+    return "\(start)"
+  }
+
+  static func headline(for sample: MatchDiagnosticSample) -> String? {
+    var parts: [String] = []
+    if sample.seasonConflict != true,
+       let mapping = seasonRewrite(from: sample.seasonRewriteFrom, to: sample.seasonRewriteTo) {
+      parts.append(mapping)
+    } else if let season = sample.explicitSeasonNumber {
+      parts.append(String(format: "Season %02d", season))
+    }
+    if let raw = episodeRange(start: sample.rawEpisodeStart, end: sample.rawEpisodeEnd) {
+      if (sample.episodeOffsetApplied ?? 0) != 0,
+         let logical = episodeRange(start: sample.logicalEpisodeStart, end: sample.logicalEpisodeEnd) {
+        parts.append("Episode \(raw) → \(logical)")
+      } else {
+        parts.append("Episode \(raw)")
+      }
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+  }
+
+  static func details(for sample: MatchDiagnosticSample) -> [Detail] {
+    var lines: [Detail] = []
+    if let alias = sample.matchedTitleAlias, !alias.isEmpty {
+      lines.append(Detail(label: "番名命中", value: "\(alias)\(sample.titleMatchSource == "subtitle" ? "（副标题）" : "")"))
+    } else if sample.titleMatchSource == "metadata" {
+      lines.append(Detail(label: "番名来源", value: "站点番组信息"))
+    }
+    if let fansub = sample.parsedFansub, !fansub.isEmpty {
+      lines.append(Detail(label: "识别字幕组", value: fansub))
+    } else if let fansub = sample.siteFansub, !fansub.isEmpty {
+      lines.append(Detail(label: "站点字幕组", value: fansub))
+    }
+    if let hits = sample.includeKeywordHits, !hits.isEmpty {
+      lines.append(Detail(label: "命中包含词", value: hits.joined(separator: "、")))
+    }
+    if sample.includeKeywordPassed == false {
+      lines.append(Detail(label: "包含词条件", value: "未满足"))
+    }
+    if let hits = sample.excludeKeywordHits, !hits.isEmpty {
+      lines.append(Detail(label: "命中排除词", value: hits.joined(separator: "、")))
+    }
+    if let mapping = seasonRewrite(from: sample.seasonRewriteFrom, to: sample.seasonRewriteTo) {
+      lines.append(Detail(label: sample.seasonConflict == true ? "Season Rewrite（季度冲突）" : "Season Rewrite", value: mapping))
+    } else if let season = sample.explicitSeasonNumber {
+      lines.append(Detail(label: "资源 Season", value: String(format: "%02d", season)))
+    }
+    if let raw = episodeRange(start: sample.rawEpisodeStart, end: sample.rawEpisodeEnd) {
+      let offset = sample.episodeOffsetApplied ?? 0
+      if offset != 0,
+         let logical = episodeRange(start: sample.logicalEpisodeStart, end: sample.logicalEpisodeEnd) {
+        lines.append(Detail(label: "Episode Offset", value: "\(raw) → \(logical)（\(offset > 0 ? "+" : "")\(offset)）"))
+      } else {
+        lines.append(Detail(label: "Episode", value: raw))
+      }
+    }
+    if let resolution = sample.parsedResolution, !resolution.isEmpty {
+      lines.append(Detail(label: "识别分辨率", value: resolution))
+    }
+    if let conflict = sample.parseConflictReason, !conflict.isEmpty {
+      lines.append(Detail(label: "解析提示", value: conflict))
+    }
+    return lines
+  }
+}

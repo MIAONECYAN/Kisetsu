@@ -1,5 +1,10 @@
 import Foundation
 
+struct SubscriptionTestValidationError: LocalizedError {
+  let message: String
+  var errorDescription: String? { message }
+}
+
 @MainActor
 final class TMDBSeasonSelection: ObservableObject {
   @Published private(set) var options: [TMDBSeasonOption] = []
@@ -3292,36 +3297,54 @@ final class AppStore: ObservableObject {
 
   @discardableResult
   func testSubscriptionForm() async -> Bool {
-    let keyword = effectiveSubscriptionKeyword()
-    guard !keyword.isEmpty else {
-      setStatus(.empty, title: "无法测试匹配", detail: subscriptionSourceType == "rss" ? "请填写订阅名称或关键词。" : "请先填写关键词或 Mikan Bangumi URL。")
-      return false
-    }
-    guard !selectedSiteIDs.isEmpty else {
-      setStatus(.empty, title: "无法测试匹配", detail: "请至少选择一个订阅来源站点。")
-      return false
-    }
-    guard validSubscriptionEpisodeStart() != nil else {
-      setStatus(.failed, title: "无法测试匹配", detail: "起始集数必须大于等于 1")
-      return false
-    }
-    if let seedingError = subscriptionSeedingValidationMessage {
-      setStatus(.failed, title: "无法保存订阅", detail: seedingError)
-      return false
-    }
-    if let keywordError = subscriptionIncludeKeywordValidationMessage ?? subscriptionExcludeKeywordValidationMessage {
-      setStatus(.failed, title: "无法测试匹配", detail: keywordError)
-      return false
-    }
     let payload: SubscriptionCreate
     do {
-      payload = try subscriptionPayloadFromForm(keyword: keyword)
+      payload = try subscriptionTestPayload()
     } catch {
       setStatus(.failed, title: "无法测试匹配", detail: error.localizedDescription)
       return false
     }
+    let endpoint = backendURL
+    let revision = backendRevision
+    let requestClient = client
     return await run("测试匹配", successTitle: "测试匹配完成", successDetail: { self.lastSubscriptionTestMatchResponse?.message ?? "" }) {
-      lastSubscriptionTestMatchResponse = try await client.testSubscriptionMatch(payload)
+      let response = try await requestClient.testSubscriptionMatch(payload)
+      guard backendURL == endpoint, backendRevision == revision else { throw CancellationError() }
+      lastSubscriptionTestMatchResponse = response
+    }
+  }
+
+  func subscriptionTestPayload() throws -> SubscriptionCreate {
+    let keyword = effectiveSubscriptionKeyword()
+    guard !keyword.isEmpty else {
+      throw SubscriptionTestValidationError(message: subscriptionSourceType == "rss" ? "请填写订阅名称或关键词。" : "请先填写关键词或 Mikan Bangumi URL。")
+    }
+    guard !selectedSiteIDs.isEmpty else {
+      throw SubscriptionTestValidationError(message: "请至少选择一个订阅来源站点。")
+    }
+    guard validSubscriptionEpisodeStart() != nil else {
+      throw SubscriptionTestValidationError(message: "起始集数必须大于等于 1")
+    }
+    if let seedingError = subscriptionSeedingValidationMessage {
+      throw SubscriptionTestValidationError(message: seedingError)
+    }
+    if let keywordError = subscriptionIncludeKeywordValidationMessage ?? subscriptionExcludeKeywordValidationMessage {
+      throw SubscriptionTestValidationError(message: keywordError)
+    }
+    return try subscriptionPayloadFromForm(keyword: keyword)
+  }
+
+  func makeSubscriptionMatchTestSession() -> SubscriptionMatchTestSession {
+    do {
+      return SubscriptionMatchTestSession(
+        payload: try subscriptionTestPayload(), validationError: nil,
+        backendURL: backendURL, backendRevision: backendRevision
+      )
+    } catch {
+      return SubscriptionMatchTestSession(
+        payload: nil, validationError: error.localizedDescription,
+        backendURL: backendURL, backendRevision: backendRevision
+      )
     }
   }
 

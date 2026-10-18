@@ -253,7 +253,7 @@ from app.services.organizer import (
 )
 from app.services.plex_naming import clean_path_component, season_directory, show_directory
 from app.services.search import search_multi_site
-from app.services.search_result_analysis import enrich_search_result
+from app.services.search_result_analysis import analyze_search_result, enrich_search_result
 from app.services.search_result_analysis import SEARCH_BUILTIN_FANSUB_NAMES, apply_season_rewrite, is_collection_parsed
 from app.services.season_rewrite import rewritten_season
 from app.services.subscription import (
@@ -2782,11 +2782,22 @@ def _episode_mapping_payload(subscription: Subscription, parsed: ParsedAnimeTitl
             f"{_format_episode_range_label(raw, season_number=season_number)} → "
             f"{_format_episode_range_label(logical, season_number=season_number)} · {offset:+d}"
         )
+    original_season = parsed.explicit_season_number
+    rewritten = rewritten_season(original_season, subscription.season_rewrite)
+    season_changed = (
+        original_season is not None
+        and rewritten is not None
+        and rewritten != original_season
+        and parsed.effective_season_number == rewritten
+        and not parsed.season_conflict
+    )
     return {
         "logical_episode_start": min(logical) if logical else None,
         "logical_episode_end": max(logical) if logical else None,
         "episode_offset_applied": offset,
         "episode_mapping_label": label,
+        "season_rewrite_from": original_season if season_changed else None,
+        "season_rewrite_to": rewritten if season_changed else None,
     }
 
 
@@ -4464,11 +4475,14 @@ def _reparsed_subscription_match_models(
     store: Store,
 ) -> list[SubscriptionMatch]:
     matches: list[SubscriptionMatch] = []
+    effective_rules = _effective_episode_rules(subscription, store)
     for match in _subscription_match_models(rows):
-        reparsed = parse_title(
-            match.result.title,
-            subscription.episode_parse_rules,
-        )
+        reparsed = analyze_search_result(
+            match.result,
+            effective_rules,
+            context_season_number=None,
+            season_rewrite=subscription.season_rewrite,
+        ).effective
         if reparsed.model_dump(mode="json") != match.parsed_title.model_dump(mode="json"):
             updated = store.upsert_subscription_match(
                 subscription_id=subscription.id,
@@ -5086,6 +5100,8 @@ def _episode_resource(
         logical_episode_end=episode_mapping["logical_episode_end"],
         episode_offset_applied=episode_mapping["episode_offset_applied"],
         episode_mapping_label=episode_mapping["episode_mapping_label"],
+        season_rewrite_from=episode_mapping["season_rewrite_from"],
+        season_rewrite_to=episode_mapping["season_rewrite_to"],
         is_batch=match.parsed_title.is_batch,
         is_multi_episode=match.parsed_title.is_multi_episode,
     )
@@ -6069,10 +6085,15 @@ async def test_subscription_match(
     is_mikan_bangumi = subscription.source_type == "mikan_bangumi" and bool(
         subscription.mikan_bangumi_url or subscription.source_url
     )
+    fetched_limit_applied = len(results) > request.limit and not is_mikan_bangumi
     if len(results) > request.limit and not is_mikan_bangumi:
         results = results[: request.limit]
     effective_rules = _effective_episode_rules(subscription, store)
-    matched, diagnostics = match_results_with_diagnostics(store, subscription, results, effective_rules)
+    evaluations: list[MatchDiagnosticSample] = []
+    matched, diagnostics = match_results_with_diagnostics(
+        store, subscription, results, effective_rules,
+        evaluations=evaluations, evaluation_limit=request.limit,
+    )
     diagnostics.search_diagnostics = search_diagnostics
     diagnostics.pages_fetched = search_diagnostics.pages_fetched
     diagnostics.total_unique = search_diagnostics.total_unique
@@ -6114,6 +6135,8 @@ async def test_subscription_match(
         excluded=diagnostics.sample_excluded_items,
         diagnostics=diagnostics,
         warnings=warnings,
+        evaluations=evaluations,
+        evaluations_truncated=fetched_limit_applied or len(results) > len(evaluations),
     )
 
 

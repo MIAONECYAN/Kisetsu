@@ -636,6 +636,18 @@ struct MobileSubscriptionDetailView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 }
+                if let mapping = SubscriptionMatchEvidence.seasonRewrite(
+                  from: match.seasonRewriteFrom, to: match.seasonRewriteTo
+                ) {
+                  Text(mapping)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
+                if let mapping = match.episodeMappingLabel, !mapping.isEmpty {
+                  Text(mapping)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
               }
               .contextMenu {
                 Button("提交下载", systemImage: "arrow.down.circle") {
@@ -962,6 +974,18 @@ private struct MobileSubscriptionResourceRow: View {
           Text(size).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
       }
+      if let mapping = SubscriptionMatchEvidence.seasonRewrite(
+        from: resource.seasonRewriteFrom, to: resource.seasonRewriteTo
+      ) {
+        Text(mapping)
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(.secondary)
+      }
+      if let mapping = resource.episodeMappingLabel, !mapping.isEmpty {
+        Text(mapping)
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(.secondary)
+      }
       if let detail = resource.derivedStatusDetail, !detail.isEmpty {
         Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
       }
@@ -1172,6 +1196,7 @@ struct MobileSubscriptionEditorView: View {
   var smartChoice: SmartSubscriptionChoice? = nil
   @State private var isSaving = false
   @State private var isTesting = false
+  @State private var matchTestSession: SubscriptionMatchTestSession?
   @State private var isAdvancedMatchingExpanded = false
   @State private var episodeRuleEditorRoute: MobileEpisodeRuleEditorRoute?
 
@@ -1566,21 +1591,18 @@ struct MobileSubscriptionEditorView: View {
 
         Section("保存前检查") {
           Button(store.subscriptionSourceType == "rss" ? "测试 RSS" : "测试当前匹配规则", systemImage: "checkmark.seal") {
-            Task {
-              isTesting = true
-              if store.subscriptionSourceType == "rss" {
+            if store.subscriptionSourceType == "rss" {
+              Task {
+                isTesting = true
                 _ = await store.testRSSForm()
-              } else {
-                _ = await store.testSubscriptionForm()
+                isTesting = false
               }
-              isTesting = false
+            } else {
+              matchTestSession = store.makeSubscriptionMatchTestSession()
             }
           }
           .buttonStyle(.glass)
-          .disabled(isTesting || isSaving || submitDisabledReason != nil)
-          if let response = store.lastSubscriptionTestMatchResponse {
-            MobileSubscriptionTestMatchSummary(response: response)
-          }
+          .disabled(isTesting || isSaving || (store.subscriptionSourceType == "rss" && submitDisabledReason != nil))
           if let submitDisabledReason {
             Label(submitDisabledReason, systemImage: "info.circle")
               .font(.caption)
@@ -1628,6 +1650,10 @@ struct MobileSubscriptionEditorView: View {
           MobileEpisodeRuleCollection.save(updated, to: &store.subscriptionEpisodeParseRules)
         }
         .environmentObject(store)
+      }
+      .sheet(item: $matchTestSession) { session in
+        MobileSubscriptionMatchTestSheet(session: session)
+          .environmentObject(store)
       }
     }
     .interactiveDismissDisabled(isSaving)
@@ -1739,55 +1765,151 @@ struct MobileSubscriptionEditorView: View {
   }
 }
 
+private struct MobileSubscriptionMatchTestSheet: View {
+  @EnvironmentObject private var store: AppStore
+  @Environment(\.dismiss) private var dismiss
+  let session: SubscriptionMatchTestSession
+  @State private var response: SubscriptionTestMatchResponse?
+  @State private var error: String?
+  @State private var isLoading = false
+  @State private var attempt = 0
+
+  var body: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 14) {
+          if isLoading {
+            ProgressView("正在测试当前订阅规则")
+              .frame(maxWidth: .infinity, minHeight: 240)
+          } else if let error {
+            ContentUnavailableView("测试未完成", systemImage: "exclamationmark.triangle", description: Text(error))
+              .frame(maxWidth: .infinity, minHeight: 240)
+            if session.validationError == nil, store.backendSessionRevision == session.backendRevision {
+              Button("重试", systemImage: "arrow.clockwise") { attempt += 1 }
+                .frame(maxWidth: .infinity)
+            }
+          } else if let response {
+            MobileSubscriptionTestMatchSummary(response: response)
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+      }
+      .mobileStatusNavigationTitle("测试匹配")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("关闭") { dismiss() }
+        }
+      }
+      .task(id: attempt) { await load() }
+      .onChange(of: store.backendSessionRevision) { _, _ in
+        response = nil
+        error = "后端已切换，请关闭窗口后重新测试。"
+        isLoading = false
+      }
+    }
+  }
+
+  private func load() async {
+    response = nil
+    error = nil
+    if let validationError = session.validationError {
+      error = validationError
+      return
+    }
+    guard let payload = session.payload else { return }
+    guard store.backendURL == session.backendURL,
+          store.backendSessionRevision == session.backendRevision else {
+      error = "后端已切换，请关闭窗口后重新测试。"
+      return
+    }
+    isLoading = true
+    let client = store.client
+    do {
+      let result = try await client.testSubscriptionMatch(payload)
+      guard !Task.isCancelled,
+            store.backendURL == session.backendURL,
+            store.backendSessionRevision == session.backendRevision else { return }
+      response = result
+      isLoading = false
+    } catch {
+      guard !Task.isCancelled,
+            store.backendURL == session.backendURL,
+            store.backendSessionRevision == session.backendRevision else { return }
+      self.error = error.localizedDescription
+      isLoading = false
+    }
+  }
+}
+
 private struct MobileSubscriptionTestMatchSummary: View {
   let response: SubscriptionTestMatchResponse
+  @State private var filter: SubscriptionMatchResultFilter = .all
 
-  private var metrics: [(String, String)] {
-    let diagnostics = response.diagnostics
-    var values: [(String, String)] = []
-    if let pages = diagnostics.pagesFetched { values.append(("搜索", "\(pages) 页")) }
-    values.append(("抓取", "\(diagnostics.totalFetched)"))
-    if let unique = diagnostics.totalUnique { values.append(("去重后", "\(unique)")) }
-    values.append(("匹配", "\(diagnostics.matchedCount)"))
-    values.append(("字幕组过滤", "\(diagnostics.excludedByFansub)"))
-    values.append(("集数过滤", "\(diagnostics.excludedByEpisodeFilter)"))
-    if let count = diagnostics.matchedBySubtitle, count > 0 { values.append(("副标题命中", "\(count)")) }
-    if let count = diagnostics.episodeParsedFromSubtitle, count > 0 { values.append(("副标题解析集数", "\(count)")) }
-    if let count = diagnostics.excludedByBatchPolicy, count > 0 { values.append(("合集策略排除", "\(count)")) }
-    if let count = diagnostics.excludedByEpisodeCoverage, count > 0 { values.append(("范围未覆盖", "\(count)")) }
-    return values
+  private var visibleEvaluations: [SubscriptionMatchResultEntry] {
+    (response.evaluations ?? []).enumerated().compactMap { index, item in
+      filter.includes(item) ? SubscriptionMatchResultEntry(id: index, sample: item) : nil
+    }
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("测试匹配结果")
-        .font(.subheadline.weight(.semibold))
-      Text(response.message)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-
-      LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 8) {
-        ForEach(Array(metrics.enumerated()), id: \.offset) { entry in
-          Text("\(entry.element.0) \(entry.element.1)")
-            .font(.caption)
-        }
+    VStack(alignment: .leading, spacing: 18) {
+      HStack(alignment: .firstTextBaseline, spacing: 12) {
+        metric("抓取", count: response.diagnostics.totalFetched)
+        metric("匹配", count: response.diagnostics.matchedCount)
+        metric("排除", count: SubscriptionMatchEvidence.excludedCount(response.diagnostics))
       }
 
-      if let reason = response.diagnostics.stopReasons?.first {
-        Label("停止：\(reason)", systemImage: "checkmark.circle")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
       if response.diagnostics.reachedInternalSafetyLimit == true || response.diagnostics.hasMore == true {
         Label("可能还有更多", systemImage: "ellipsis.circle")
           .font(.caption)
           .foregroundStyle(.orange)
       }
 
-      if !response.matchedSamples.isEmpty {
+      ForEach(SubscriptionMatchEvidence.userFacingWarnings(response.warnings), id: \.self) { warning in
+        Label(warning, systemImage: "exclamationmark.triangle")
+          .font(.caption)
+          .foregroundStyle(.orange)
+      }
+
+      if let evaluations = response.evaluations {
+        HStack {
+          Text("资源结果")
+            .font(.subheadline.weight(.semibold))
+          Spacer()
+          Text("显示 \(visibleEvaluations.count) / \(evaluations.count)")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        Picker("显示范围", selection: $filter) {
+          ForEach(SubscriptionMatchResultFilter.allCases) { option in
+            Text(option.rawValue).tag(option)
+          }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+
+        if visibleEvaluations.isEmpty {
+          ContentUnavailableView(filter.emptyTitle, systemImage: "line.3.horizontal.decrease.circle")
+            .frame(maxWidth: .infinity, minHeight: 160)
+        } else {
+          LazyVStack(alignment: .leading, spacing: 14) {
+            ForEach(visibleEvaluations) { entry in
+              MobileMatchDiagnosticSampleRow(item: entry.sample, matched: entry.sample.matched == true)
+              if entry.id != visibleEvaluations.last?.id { Divider() }
+            }
+          }
+        }
+        if response.evaluationsTruncated == true {
+          Text("结果较多，仅显示本次请求中的前 \(evaluations.count) 条诊断。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      } else if !response.matchedSamples.isEmpty {
         Text("会匹配").font(.caption.weight(.semibold))
         ForEach(response.matchedSamples.prefix(5)) { item in
-          MobileMatchDiagnosticSampleRow(item: item, accent: .green)
+          MobileMatchDiagnosticSampleRow(item: item, matched: true)
         }
       } else if !response.matched.isEmpty {
         Text("会匹配").font(.caption.weight(.semibold))
@@ -1796,12 +1918,34 @@ private struct MobileSubscriptionTestMatchSummary: View {
         }
       }
 
-      if !response.excluded.isEmpty {
+      if response.evaluations == nil && !response.excluded.isEmpty {
         Text("被排除示例").font(.caption.weight(.semibold))
         ForEach(response.excluded.prefix(5)) { item in
-          MobileMatchDiagnosticSampleRow(item: item, accent: .orange)
+          MobileMatchDiagnosticSampleRow(item: item, matched: false)
         }
       }
+
+      DisclosureGroup("抓取与筛选详情") {
+        VStack(alignment: .leading, spacing: 8) {
+          Text(response.message)
+          if let reason = response.diagnostics.stopReasons?.first {
+            Text("停止：\(reason)")
+          }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func metric(_ title: String, count: Int) -> some View {
+    VStack(alignment: .leading, spacing: 3) {
+      Text("\(count)")
+        .font(.title3.weight(.semibold).monospacedDigit())
+      Text(title)
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -1809,75 +1953,52 @@ private struct MobileSubscriptionTestMatchSummary: View {
 
 private struct MobileMatchDiagnosticSampleRow: View {
   let item: MatchDiagnosticSample
-  let accent: Color
-
-  private var details: [String] {
-    var values: [String] = []
-    if let fansub = item.parsedFansub { values.append("字幕组 \(fansub)") }
-    if let siteFansub = item.siteFansub, siteFansub != item.parsedFansub {
-      values.append("站点分组 \(siteFansub)")
-    }
-    if let resolution = item.parsedResolution { values.append("分辨率 \(resolution)") }
-    if item.isBatch == true, let start = item.parsedEpisodeStart, let end = item.parsedEpisodeEnd {
-      values.append("合集 \(start)-\(end)")
-    } else if let episode = item.parsedEpisode {
-      values.append("第 \(episode) 集")
-    }
-    if item.isFinal == true { values.append("完结") }
-    if let seasonText { values.append(seasonText) }
-    if let rule = item.parseRuleName { values.append("规则 \(rule)") }
-    return values
-  }
-
-  private var seasonText: String? {
-    if let reason = item.seasonConflictReason { return reason }
-    guard let season = item.effectiveSeasonNumber else { return nil }
-    let label = "S\(String(format: "%02d", season))"
-    switch item.seasonSource {
-    case "subscription": return "使用订阅季 \(label)"
-    case "title_explicit": return "标题指定 \(label)"
-    case "default": return "默认推断 \(label)"
-    default: return label
-    }
-  }
-
-  private var subtitleEvidence: [String] {
-    var fields: [String] = []
-    if item.titleMatchSource == "subtitle" { fields.append("番名") }
-    if item.episodeParseSource == "subtitle" { fields.append("集数") }
-    if item.seasonParseSource == "subtitle" { fields.append("季度") }
-    if item.fansubParseSource == "subtitle" { fields.append("字幕组") }
-    if item.resolutionParseSource == "subtitle" { fields.append("分辨率") }
-    return fields
-  }
+  let matched: Bool
+  @State private var isExpanded = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      Text(item.title)
-        .font(.caption)
-        .lineLimit(2)
-      Text(item.reason)
-        .font(.caption2)
-        .foregroundStyle(accent)
-      if !details.isEmpty {
-        Text(details.joined(separator: " · "))
-          .font(.caption2)
-          .foregroundStyle(.secondary)
+    DisclosureGroup(isExpanded: $isExpanded) {
+      VStack(alignment: .leading, spacing: 6) {
+        Text(matched ? "匹配依据" : "检查依据")
+          .font(.caption.weight(.semibold))
+        ForEach(SubscriptionMatchEvidence.details(for: item), id: \.self) { detail in
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(detail.label)
+              .foregroundStyle(.secondary)
+              .frame(width: 92, alignment: .leading)
+            Text(detail.value)
+              .foregroundStyle(.primary)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .font(.caption)
+        }
+        if let reason = item.parseFailureReason {
+          Text(reason).font(.caption).foregroundStyle(.orange)
+        }
+        if let reason = item.parseConflictReason {
+          Text(reason).font(.caption).foregroundStyle(.orange)
+        }
       }
-      if !subtitleEvidence.isEmpty {
-        Text("副标题提供：\(subtitleEvidence.joined(separator: "、"))")
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-      }
-      if let reason = item.parseFailureReason {
-        Text(reason)
-          .font(.caption2)
-          .foregroundStyle(.orange)
-      }
-      if let reason = item.parseConflictReason {
-        Text(reason)
-          .font(.caption2)
-          .foregroundStyle(.orange)
+      .padding(.top, 6)
+    } label: {
+      HStack(alignment: .top, spacing: 10) {
+        Image(systemName: matched ? "checkmark.circle.fill" : "xmark.circle.fill")
+          .foregroundStyle(matched ? Color.green : Color.orange)
+          .padding(.top, 2)
+        VStack(alignment: .leading, spacing: 4) {
+          Text(item.title)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.primary)
+            .lineLimit(isExpanded ? nil : 2)
+          Text(matched && item.reason == "已匹配" ? "会匹配" : item.reason)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(matched ? Color.green : Color.orange)
+          if let headline = SubscriptionMatchEvidence.headline(for: item) {
+            Text(headline)
+              .font(.caption.monospacedDigit())
+              .foregroundStyle(.secondary)
+          }
+        }
       }
     }
   }
