@@ -397,6 +397,7 @@ final class AppStore: ObservableObject {
   @Published var subscriptionMaxSize = ""
   @Published var subscriptionMaxSizeUnit = SubscriptionSizeUnit.gigabytes
   @Published var subscriptionSeason = ""
+  @Published var subscriptionSeasonRewrite = ""
   @Published var subscriptionEpisodeStart = "1"
   @Published var subscriptionEpisodeOffset = ""
   @Published var subscriptionUseCustomEpisodeRules = false
@@ -2033,6 +2034,10 @@ final class AppStore: ObservableObject {
     SubscriptionKeywordExpression.validationMessage(subscriptionExcludeKeywords)
   }
 
+  var subscriptionSeasonRewriteValidationMessage: String? {
+    SubscriptionSeasonRewrite.validationMessage(subscriptionSeasonRewrite)
+  }
+
   var subscriptionSizeValidationMessage: String? {
     subscriptionSizeFilterDraft.validationMessage
   }
@@ -2810,6 +2815,7 @@ final class AppStore: ObservableObject {
       clearWhenMissing: true
     )
     subscriptionSeason = suggestion.season.map(String.init) ?? ""
+    subscriptionSeasonRewrite = suggestion.seasonRewrite ?? ""
     subscriptionEpisodeStart = "1"
     subscriptionEpisodeOffset = String(suggestion.episodeOffset)
     subscriptionEpisodeParseRules = suggestion.episodeParseRules
@@ -3240,6 +3246,7 @@ final class AppStore: ObservableObject {
       subscriptionResolutionCustom = legacyResolution
     }
     subscriptionSeason = subscription.season.map(String.init) ?? ""
+    subscriptionSeasonRewrite = subscription.seasonRewrite ?? ""
     subscriptionEpisodeStart = String(max(1, subscription.episodeStart ?? 1))
     subscriptionEpisodeOffset = String(subscription.episodeOffset)
     subscriptionEpisodeParseRules = subscription.episodeParseRules.sorted { $0.priority < $1.priority }
@@ -5618,6 +5625,7 @@ final class AppStore: ObservableObject {
   func subscriptionPayloadFromForm(keyword: String) throws -> SubscriptionCreate {
     let name = subscriptionName.trimmingCharacters(in: .whitespacesAndNewlines)
     let season = Int(subscriptionSeason.trimmingCharacters(in: .whitespacesAndNewlines))
+    let seasonRewrite = try SubscriptionSeasonRewrite.normalized(subscriptionSeasonRewrite)
     let episodeStart = validSubscriptionEpisodeStart() ?? 1
     let episodeOffset = Int(subscriptionEpisodeOffset.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
     let totalEpisodes = Int(subscriptionTotalEpisodes.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -5701,6 +5709,7 @@ final class AppStore: ObservableObject {
       minSizeBytes: sizeRange.minimum,
       maxSizeBytes: sizeRange.maximum,
       season: season,
+      seasonRewrite: seasonRewrite,
       episode: nil,
       episodeStart: episodeStart,
       episodeOffset: episodeOffset,
@@ -5795,6 +5804,7 @@ final class AppStore: ObservableObject {
       minSizeBytes: subscription.minSizeBytes,
       maxSizeBytes: subscription.maxSizeBytes,
       season: subscription.season,
+      seasonRewrite: subscription.seasonRewrite,
       episode: subscription.episode,
       episodeStart: subscription.episodeStart,
       episodeOffset: subscription.episodeOffset,
@@ -5851,6 +5861,7 @@ final class AppStore: ObservableObject {
     subscriptionMaxSize = ""
     subscriptionMaxSizeUnit = .gigabytes
     subscriptionSeason = ""
+    subscriptionSeasonRewrite = ""
     subscriptionEpisodeStart = "1"
     subscriptionEpisodeOffset = ""
     subscriptionUseCustomEpisodeRules = false

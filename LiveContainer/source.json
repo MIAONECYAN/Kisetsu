@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.9",
-          "buildVersion": "10",
-          "date": "2026-10-17T07:47:16Z",
-          "localizedDescription": "修复订阅编辑页深色模式开关、搜索订阅图标和重复搜索加载提示；修复 TMDB 配置误报及请求错误提示。",
+          "version": "1.0.10",
+          "buildVersion": "11",
+          "date": "2026-10-18T01:35:06Z",
+          "localizedDescription": "订阅支持 Season Rewrite，可为同一订阅配置多条季度改写规则；macOS 与 iPhone 订阅编辑字段名称同步更新。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5742389,
+          "size": 5749072,
           "minOSVersion": "26.0"
         }
       ],

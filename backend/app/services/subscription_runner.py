@@ -893,6 +893,7 @@ def _prefer_largest_single_episode_resources(
             result,
             episode_parse_rules,
             context_season_number=subscription.season,
+            season_rewrite=subscription.season_rewrite,
         ).effective
         if is_collection_parsed(parsed) or parsed.resource_type != "single_episode":
             continue
@@ -1019,6 +1020,7 @@ async def _refresh_subscription_once(
                 result,
                 effective_rules,
                 context_season_number=subscription.season,
+                season_rewrite=subscription.season_rewrite,
             ).effective
             decision = automatic_download_fulfillment_decision(
                 subscription,
@@ -1120,6 +1122,7 @@ async def _refresh_subscription_once(
                         result,
                         effective_rules,
                         context_season_number=subscription.season,
+                        season_rewrite=subscription.season_rewrite,
                     ).effective
                     media_index = build_subscription_episode_media_index(subscription, store)
                     decision = automatic_download_fulfillment_decision(
@@ -1229,6 +1232,7 @@ async def _refresh_subscription_once(
             result,
             effective_rules,
             context_season_number=subscription.season,
+            season_rewrite=subscription.season_rewrite,
         ).effective
         record = store.upsert_subscription_match(
             subscription_id=subscription.id,

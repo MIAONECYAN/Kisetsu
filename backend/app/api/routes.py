@@ -253,7 +253,9 @@ from app.services.organizer import (
 )
 from app.services.plex_naming import clean_path_component, season_directory, show_directory
 from app.services.search import search_multi_site
-from app.services.search_result_analysis import SEARCH_BUILTIN_FANSUB_NAMES, enrich_search_result, is_collection_parsed
+from app.services.search_result_analysis import enrich_search_result
+from app.services.search_result_analysis import SEARCH_BUILTIN_FANSUB_NAMES, apply_season_rewrite, is_collection_parsed
+from app.services.season_rewrite import rewritten_season
 from app.services.subscription import (
     analyze_match,
     filter_results_by_subscription_size,
@@ -6382,9 +6384,13 @@ async def update_subscription(
             detail="订阅已在其他位置更新，请重新载入后再保存。",
         )
     preserve_existing_episode_start = "episode_start" not in request.model_fields_set
-    if preserve_existing_episode_start:
+    preserve_existing_season_rewrite = "season_rewrite" not in request.model_fields_set
+    if preserve_existing_episode_start or preserve_existing_season_rewrite:
         payload = request.model_dump(mode="json")
-        payload["episode_start"] = existing.episode_start or 1
+        if preserve_existing_episode_start:
+            payload["episode_start"] = existing.episode_start or 1
+        if preserve_existing_season_rewrite:
+            payload["season_rewrite"] = existing.season_rewrite
         request = SubscriptionCreate(**payload)
     request = _with_default_organize_target(request, store)
     _reject_duplicate_subscription(request, store, exclude_subscription_id=subscription_id)
@@ -7578,6 +7584,10 @@ def _batch_file_mapping(
         subscription.episode_parse_rules if subscription else [],
         context_season_number=subscription.season if subscription else fallback_season,
     )
+    if parsed_title is None and subscription is not None:
+        parsed = apply_season_rewrite(
+            parsed, subscription.season_rewrite, context_season_number=subscription.season,
+        )
     season = parsed.effective_season_number or parsed.season_number or parsed.season or fallback_season or mapping.season_number
     episode = parsed.episode
     is_special = bool(parsed.is_special or season == 0)
@@ -7638,6 +7648,9 @@ def _subscription_batch_file_plan(
             file_path.name,
             subscription.episode_parse_rules,
             context_season_number=subscription.season,
+        )
+        parsed = apply_season_rewrite(
+            parsed, subscription.season_rewrite, context_season_number=subscription.season,
         )
         source_key = str(file_path)
         parsed_by_source[source_key] = parsed
@@ -7990,11 +8003,18 @@ def _batch_mapping_for_match(mapping: PlexSeasonMapping, match: SubscriptionMatc
 
 
 def _season_conflict_message(subscription: Subscription, parsed: ParsedAnimeTitle) -> str | None:
+    explicit = parsed.explicit_season_number
+    if (
+        subscription.season_rewrite
+        and explicit is not None
+        and explicit != subscription.season
+        and rewritten_season(explicit, subscription.season_rewrite) == subscription.season
+    ):
+        return None
     if parsed.season_conflict and parsed.season_conflict_reason:
         return f"{parsed.season_conflict_reason}。请确认后再整理。"
     if subscription.season is None:
         return None
-    explicit = parsed.explicit_season_number
     if explicit is not None and explicit != subscription.season:
         return f"这个资源看起来属于第 {explicit} 季，但当前订阅是第 {subscription.season} 季。请确认后再整理。"
     return None

@@ -1355,27 +1355,34 @@ struct MobileSubscriptionEditorView: View {
 
         Section("集数规则") {
           MobileSubscriptionTextField(
-            label: "季数",
+            label: "Season",
             prompt: "例如：1",
             text: $store.subscriptionSeason
           )
             .keyboardType(.numberPad)
           MobileFormValidationMessage(message: seasonValidationMessage)
           MobileSubscriptionTextField(
-            label: "起始集数",
+            label: "Season Rewrite",
+            prompt: "例如：2-1, 3-1, 4-2",
+            text: $store.subscriptionSeasonRewrite
+          )
+            .keyboardType(.numbersAndPunctuation)
+          MobileFormValidationMessage(message: store.subscriptionSeasonRewriteValidationMessage)
+          MobileSubscriptionTextField(
+            label: "Episode Start",
             prompt: "默认从第 1 集开始",
             text: $store.subscriptionEpisodeStart
           )
             .keyboardType(.numberPad)
           MobileFormValidationMessage(message: episodeStartValidationMessage)
           MobileSubscriptionTextField(
-            label: "指定集数",
+            label: "Episode",
             prompt: "例如：1-6, 8, 10-12",
             text: $store.subscriptionEpisodeFilter
           )
           MobileFormValidationMessage(message: episodeFilterValidationMessage)
           MobileSubscriptionTextField(
-            label: "集数偏移",
+            label: "Episode Offset",
             prompt: "默认 0",
             text: $store.subscriptionEpisodeOffset
           )
@@ -1670,6 +1677,7 @@ struct MobileSubscriptionEditorView: View {
       )
       || sourceURLValidationMessage != nil
       || seasonValidationMessage != nil
+      || store.subscriptionSeasonRewriteValidationMessage != nil
       || totalEpisodesValidationMessage != nil
       || episodeStartValidationMessage != nil
       || episodeFilterValidationMessage != nil
@@ -1694,7 +1702,7 @@ struct MobileSubscriptionEditorView: View {
   private var seasonValidationMessage: String? {
     MobileFormValidation.integerMessage(
       store.subscriptionSeason,
-      field: "季数",
+      field: "Season",
       minimum: 0,
       allowsEmpty: true
     )
@@ -1712,7 +1720,7 @@ struct MobileSubscriptionEditorView: View {
   private var episodeStartValidationMessage: String? {
     MobileFormValidation.integerMessage(
       store.subscriptionEpisodeStart,
-      field: "起始集数",
+      field: "Episode Start",
       minimum: 1,
       allowsEmpty: false
     )
@@ -1725,7 +1733,7 @@ struct MobileSubscriptionEditorView: View {
   private var episodeOffsetValidationMessage: String? {
     MobileFormValidation.signedIntegerMessage(
       store.subscriptionEpisodeOffset,
-      field: "集数偏移",
+      field: "Episode Offset",
       allowsEmpty: true
     )
   }

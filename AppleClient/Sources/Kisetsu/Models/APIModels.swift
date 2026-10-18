@@ -1146,6 +1146,7 @@ struct SubscriptionCreate: Codable {
   var minSizeBytes: Int? = nil
   var maxSizeBytes: Int? = nil
   var season: Int?
+  var seasonRewrite: String? = nil
   var episode: Int?
   var episodeStart: Int?
   var episodeOffset: Int
@@ -1199,6 +1200,7 @@ struct Subscription: Codable, Identifiable, Hashable {
   var minSizeBytes: Int?
   var maxSizeBytes: Int?
   var season: Int?
+  var seasonRewrite: String? = nil
   var episode: Int?
   var episodeStart: Int?
   var episodeOffset: Int

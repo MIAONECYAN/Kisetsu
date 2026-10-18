@@ -275,6 +275,7 @@ def analyze_match(
         result,
         episode_parse_rules if episode_parse_rules is not None else subscription.episode_parse_rules,
         context_season_number=subscription.season,
+        season_rewrite=subscription.season_rewrite,
     )
     parsed = analysis.effective
     matched_title_source = title_match_source(subscription, result)
@@ -633,6 +634,7 @@ def should_auto_download(
         result,
         episode_parse_rules if episode_parse_rules is not None else subscription.episode_parse_rules,
         context_season_number=subscription.season,
+        season_rewrite=subscription.season_rewrite,
     ).effective
     return not is_collection_parsed(parsed)
 

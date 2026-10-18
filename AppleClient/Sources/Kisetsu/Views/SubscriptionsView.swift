@@ -745,10 +745,11 @@ private struct SubscriptionForm: View {
 
       DisclosureGroup("集数规则", isExpanded: $showEpisodeRules) {
         VStack(alignment: .leading, spacing: 10) {
-          LabeledTextField(label: "Season 编号", placeholder: "例如：1", text: $store.subscriptionSeason, help: "代表这个订阅要追的季度；无明确季度的资源会按它处理，明确跨季资源会提示确认。")
-          LabeledTextField(label: "指定集数", placeholder: "例如：1-6, 8, 10-12", text: $store.subscriptionEpisodeFilter, help: "为空表示订阅全部集数。指定集数会按集数偏移后的显示集数判断。")
-          LabeledTextField(label: "起始集数", placeholder: "1", text: $store.subscriptionEpisodeStart, help: "通常从第 1 集开始。只有资源标题和实际集数不一致时才需要修改。")
-          LabeledTextField(label: "集数偏移", placeholder: "例如：-12", text: $store.subscriptionEpisodeOffset, help: "当资源标题集数和显示/整理集数不一致时使用。例如资源第 13 集希望显示为 S02E01，则填写 -12。")
+          LabeledTextField(label: "Season", placeholder: "例如：1", text: $store.subscriptionSeason, help: "代表这个订阅要追的季度；无明确季度的资源会按它处理，明确跨季资源会提示确认。")
+          LabeledTextField(label: "Season Rewrite", placeholder: "例如：2-1, 3-1, 4-2", text: $store.subscriptionSeasonRewrite, help: "将资源原本的 Season 改写为匹配季度；多条规则用英文逗号分隔。", error: store.subscriptionSeasonRewriteValidationMessage)
+          LabeledTextField(label: "Episode", placeholder: "例如：1-6, 8, 10-12", text: $store.subscriptionEpisodeFilter, help: "为空表示订阅全部集数。指定集数会按集数偏移后的显示集数判断。")
+          LabeledTextField(label: "Episode Start", placeholder: "1", text: $store.subscriptionEpisodeStart, help: "通常从第 1 集开始。只有资源标题和实际集数不一致时才需要修改。")
+          LabeledTextField(label: "Episode Offset", placeholder: "例如：-12", text: $store.subscriptionEpisodeOffset, help: "当资源标题集数和显示/整理集数不一致时使用。例如资源第 13 集希望显示为 S02E01，则填写 -12。")
           Toggle("刷新时自动更新总集数", isOn: $store.subscriptionAutoUpdateTotalEpisodes)
         }
       }

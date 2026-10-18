@@ -6,6 +6,7 @@ import unicodedata
 from collections.abc import Collection
 
 from app.models import EpisodeParseRule, ParsedAnimeTitle, SearchResult
+from app.services.season_rewrite import rewritten_season
 from app.services.title_parser import KNOWN_FANSUB_TOKENS, parse_title
 
 SEARCH_BUILTIN_FANSUB_NAMES = ("黒ネズミたち",)
@@ -104,6 +105,30 @@ def is_collection_parsed(parsed: ParsedAnimeTitle) -> bool:
     )
 
 
+def apply_season_rewrite(
+    parsed: ParsedAnimeTitle,
+    season_rewrite: str | None,
+    *,
+    context_season_number: int | None = None,
+) -> ParsedAnimeTitle:
+    original = parsed.explicit_season_number
+    target = rewritten_season(original, season_rewrite)
+    if original is None or target == original:
+        return parsed
+    conflict = context_season_number is not None and target != context_season_number
+    effective = context_season_number if context_season_number is not None else target
+    return parsed.model_copy(update={
+        "season": effective,
+        "season_number": effective,
+        "effective_season_number": effective,
+        "season_conflict": conflict,
+        "season_conflict_reason": (
+            f"资源原本为 Season {original:02d}，改写为 Season {target:02d}，但订阅是 Season {context_season_number:02d}"
+            if conflict else None
+        ),
+    })
+
+
 def _episode_signature(parsed: ParsedAnimeTitle) -> tuple[int | None, int | None]:
     start = parsed.episode_start if parsed.episode_start is not None else parsed.episode
     end = parsed.episode_end if parsed.episode_end is not None else start
@@ -123,6 +148,7 @@ def analyze_search_result(
     episode_parse_rules: list[EpisodeParseRule] | None = None,
     *,
     context_season_number: int | None = None,
+    season_rewrite: str | None = None,
 ) -> SearchResultAnalysis:
     if result.source == "animegarden":
         season = result.parsed_season_number if result.parsed_season_number is not None else context_season_number
@@ -161,7 +187,7 @@ def analyze_search_result(
         return SearchResultAnalysis(
             title=parsed,
             subtitle=None,
-            effective=parsed,
+            effective=apply_season_rewrite(parsed, season_rewrite, context_season_number=context_season_number),
             episode_source=evidence,
             season_source="site_metadata" if result.parsed_season_number is not None else "unknown",
             fansub_source="site_metadata" if result.parsed_fansub else "unknown",
@@ -238,7 +264,11 @@ def analyze_search_result(
         if primary.resolution and subtitle.resolution and primary.resolution.casefold() != subtitle.resolution.casefold():
             conflicts.append("主标题与副标题分辨率冲突，采用主标题")
 
-    effective = primary.model_copy(update=updates)
+    effective = apply_season_rewrite(
+        primary.model_copy(update=updates),
+        season_rewrite,
+        context_season_number=context_season_number,
+    )
     return SearchResultAnalysis(
         title=primary,
         subtitle=subtitle,

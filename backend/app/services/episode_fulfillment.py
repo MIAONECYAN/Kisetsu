@@ -17,6 +17,7 @@ from app.models import (
     SubscriptionMatch,
 )
 from app.services.plex_naming import clean_path_component, season_directory, show_directory
+from app.services.search_result_analysis import apply_season_rewrite
 from app.services.title_parser import parse_title
 
 VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".m4v", ".webm"}
@@ -453,6 +454,9 @@ def submitted_episode_keys(
             parsed = ParsedAnimeTitle(**match["parsed_title"])
         except (KeyError, TypeError, ValueError):
             continue
+        parsed = apply_season_rewrite(
+            parsed, subscription.season_rewrite, context_season_number=subscription.season,
+        )
         keys.update(episode_keys_for_parsed_title(subscription, parsed))
         active_by_fingerprint.pop(fingerprint, None)
     for history in active_by_fingerprint.values():
@@ -463,6 +467,9 @@ def submitted_episode_keys(
             title,
             subscription.episode_parse_rules,
             context_season_number=subscription.season,
+        )
+        parsed = apply_season_rewrite(
+            parsed, subscription.season_rewrite, context_season_number=subscription.season,
         )
         keys.update(episode_keys_for_parsed_title(subscription, parsed))
     return keys

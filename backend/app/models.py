@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.keyword_expression import KeywordExpressionError, normalize_keyword_expression_items
+from app.services.season_rewrite import normalize_season_rewrite
 
 
 LEGACY_SITE_ID_ALIASES = {
@@ -70,7 +71,7 @@ class HealthResponse(BaseModel):
     ok: bool = True
     status: str = "ok"
     app: str = "Kisetsu"
-    version: str = "1.0.9"
+    version: str = "1.0.10"
     message: str = "后端连接正常"
     time: datetime
     port: int | None = None
@@ -894,6 +895,7 @@ class SubscriptionCreate(BaseModel):
     min_size_bytes: int | None = Field(default=None, gt=0)
     max_size_bytes: int | None = Field(default=None, gt=0)
     season: int | None = Field(default=None, ge=0)
+    season_rewrite: str = ""
     episode: int | None = Field(default=None, ge=1)
     episode_start: int = Field(default=1, ge=1)
     episode_offset: int = 0
@@ -929,6 +931,11 @@ class SubscriptionCreate(BaseModel):
     save_path: str | None = None
     category: str | None = "anime"
     tags: list[str] = Field(default_factory=lambda: ["kisetsu"])
+
+    @field_validator("season_rewrite")
+    @classmethod
+    def validate_season_rewrite(cls, value: str) -> str:
+        return normalize_season_rewrite(value)
 
     @field_validator("include_keywords", "exclude_keywords", mode="before")
     @classmethod
