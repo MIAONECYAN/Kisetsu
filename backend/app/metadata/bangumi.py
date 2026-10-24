@@ -101,6 +101,14 @@ def total_episodes_from_subject(item: dict[str, Any]) -> int | None:
     return len(episode_numbers) or None
 
 
+def is_movie_subject(item: dict[str, Any]) -> bool:
+    subject_type = _positive_int(item.get("type"))
+    platform = str(item.get("platform") or "").strip().casefold()
+    return (subject_type == 2 and platform in {"剧场版", "movie"}) or (
+        subject_type == 6 and platform in {"电影", "movie"}
+    )
+
+
 class BangumiAdapter(BaseMetadataAdapter):
     source = "bangumi"
     endpoint = "https://api.bgm.tv/v0/search/subjects"
@@ -109,19 +117,30 @@ class BangumiAdapter(BaseMetadataAdapter):
         payload: dict[str, Any] = {
             "keyword": query,
             "sort": "match",
-            "filter": {"type": [2]},
+            "filter": {"type": [2, 6] if media_type == "movie" else [2]},
         }
-        if year:
+        # Movie air_date can be a home-video date; rank by year without excluding the film.
+        if year and media_type != "movie":
             payload["filter"]["air_date"] = [f">={year}-01-01", f"<={year}-12-31"]
         headers = {
             "User-Agent": bangumi_user_agent(),
             "Content-Type": "application/json",
         }
         async with httpx.AsyncClient(timeout=15, headers=headers) as client:
-            response = await client.post(self.endpoint, json=payload)
+            response = await client.post(
+                self.endpoint,
+                json=payload,
+                params={"limit": 100} if media_type == "movie" else None,
+            )
             response.raise_for_status()
             data = response.json()
-        return [self.normalize_subject(item) for item in data.get("data", [])]
+        subjects = data.get("data", [])
+        if media_type == "movie":
+            subjects = [item for item in subjects if is_movie_subject(item)]
+        return [
+            self.normalize_subject(item, media_type="movie" if media_type == "movie" else None)
+            for item in subjects
+        ]
 
     def _episode_titles_from_raw(self, item: dict[str, Any]) -> dict[str, str]:
         existing = item.get("episode_titles")
@@ -140,7 +159,7 @@ class BangumiAdapter(BaseMetadataAdapter):
                 titles[str(number)] = str(title)
         return titles
 
-    def normalize_subject(self, item: dict[str, Any]) -> MetadataCandidate:
+    def normalize_subject(self, item: dict[str, Any], *, media_type: str | None = None) -> MetadataCandidate:
         infobox = item.get("infobox") or []
         aliases: list[str] = []
         air_date = item.get("date")
@@ -166,6 +185,7 @@ class BangumiAdapter(BaseMetadataAdapter):
             source="bangumi",
             external_id=str(item.get("id")),
             title=item.get("name_cn") or item.get("name") or "未命名条目",
+            media_type=media_type,
             original_title=item.get("name"),
             chinese_title=item.get("name_cn") or None,
             aliases=aliases,

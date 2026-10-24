@@ -5,7 +5,7 @@ import re
 from difflib import SequenceMatcher
 
 from app.metadata import BangumiAdapter, TMDBAdapter, describe_metadata_error
-from app.models import MetadataCandidate, MetadataSearchRequest, MetadataSearchResponse, PlexSeasonMapping
+from app.models import MetadataCandidate, MetadataSearchRequest, MetadataSearchResponse, MetadataSourceResult, PlexSeasonMapping
 from app.services.title_parser import parse_title
 
 
@@ -81,11 +81,18 @@ def score_candidate(candidate: MetadataCandidate, query: str, year: int | None) 
     return candidate
 
 
-def sort_candidates(candidates: list[MetadataCandidate]) -> list[MetadataCandidate]:
+def sort_candidates(candidates: list[MetadataCandidate], query: str | None = None) -> list[MetadataCandidate]:
+    def title_similarity(candidate: MetadataCandidate) -> float:
+        if not query:
+            return 0.0
+        names = [candidate.title, candidate.original_title or "", candidate.chinese_title or "", *candidate.aliases]
+        return max(similarity(query, name) for name in names)
+
     return sorted(
         candidates,
         key=lambda item: (
             item.match_score or 0,
+            title_similarity(item),
             1 if item.source == "bangumi" else 0,
             item.rating or 0,
         ),
@@ -122,25 +129,35 @@ def merge_summary(candidates: list[MetadataCandidate], recommended: MetadataCand
 async def search_metadata(request: MetadataSearchRequest) -> MetadataSearchResponse:
     candidates: list[MetadataCandidate] = []
     warnings: list[str] = []
+    source_results: list[MetadataSourceResult] = []
     tasks = []
-    if "bangumi" in request.sources and request.media_type != "movie":
+    if "bangumi" in request.sources:
         tasks.append(("bangumi", BangumiAdapter().search(request.query, request.year, request.media_type)))
-    elif "bangumi" in request.sources:
-        warnings.append("电影类型请使用 TMDB 搜索；Bangumi 搜索未按电影类型筛选。")
     if "tmdb" in request.sources:
         tasks.append(("tmdb", TMDBAdapter().search(request.query, request.year, request.media_type)))
 
     results = await asyncio.gather(*(task for _, task in tasks), return_exceptions=True)
     for (source, _), result in zip(tasks, results, strict=False):
         if isinstance(result, Exception):
-            warnings.append(f"{source}: {describe_metadata_error(result)}")
+            message = describe_metadata_error(result)
+            warnings.append(f"{source}: {message}")
+            source_results.append(MetadataSourceResult(source=source, status="failed", message=message))
         else:
             candidates.extend(result)
-    candidates = sort_candidates([score_candidate(candidate, request.query, request.year) for candidate in candidates])
+            source_results.append(MetadataSourceResult(
+                source=source,
+                status="results" if result else "empty",
+                count=len(result),
+            ))
+    candidates = sort_candidates(
+        [score_candidate(candidate, request.query, request.year) for candidate in candidates],
+        query=request.query,
+    )
     recommended = candidates[0] if candidates else None
     return MetadataSearchResponse(
         candidates=candidates,
         warnings=warnings,
+        source_results=source_results,
         recommended_candidate_id=candidate_key(recommended) if recommended else None,
         suggested_mapping=suggest_mapping(recommended),
         merge_summary=merge_summary(candidates, recommended),

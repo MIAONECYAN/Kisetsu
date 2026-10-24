@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.11",
-          "buildVersion": "12",
-          "date": "2026-10-18T14:20:44Z",
-          "localizedDescription": "修复 Season Rewrite 在订阅详情中的显示，并改进测试匹配窗口的结果与排除原因展示。",
+          "version": "1.0.12",
+          "buildVersion": "13",
+          "date": "2026-10-24T06:54:57Z",
+          "localizedDescription": "修复电影手动整理的 Bangumi 搜索，并改进电影与剧集的作品搜索和候选信息展示。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5807376,
+          "size": 5832983,
           "minOSVersion": "26.0"
         }
       ],

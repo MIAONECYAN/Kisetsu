@@ -846,7 +846,27 @@ struct MobileManualOrganizeSheet: View {
   @EnvironmentObject private var store: AppStore
   @Environment(\.dismiss) private var dismiss
   private enum Step { case details, files, confirmation }
+  private enum SearchSource: String { case all, bangumi, tmdb }
   @State private var step: Step = .details
+  @State private var searchSource: SearchSource = .all
+
+  private var selectedCandidate: MetadataCandidate? {
+    store.metadataCandidates.first { $0.id == store.manualOrganizeSelectedCandidateID }
+  }
+
+  private var searchDisabled: Bool {
+    store.manualOrganizeOperation.isRunning || store.metadataQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private func searchMetadata() {
+    Task {
+      switch searchSource {
+      case .all: await store.searchManualHistoryMetadata()
+      case .bangumi: await store.searchManualHistoryBangumiMetadata()
+      case .tmdb: await store.searchManualHistoryTMDBMetadata()
+      }
+    }
+  }
 
   var body: some View {
     NavigationStack {
@@ -863,36 +883,61 @@ struct MobileManualOrganizeSheet: View {
             Text("动画 / 剧集").tag("anime")
             Text("电影").tag("movie")
           }
-          .onChange(of: store.manualOrganizeMediaType) { _, _ in store.changeManualOrganizeMediaType() }
-          MobileFormTextField(label: "作品名称", prompt: "中文、日文或英文名称", text: $store.metadataQuery)
-          HStack {
-            Button("全部", systemImage: "magnifyingglass") { Task { await store.searchManualHistoryMetadata() } }
-            if store.manualOrganizeMediaType != "movie" {
-              Button("Bangumi") { Task { await store.searchManualHistoryBangumiMetadata() } }
-            }
-            Button("TMDB") { Task { await store.searchManualHistoryTMDBMetadata() } }
+          .onChange(of: store.manualOrganizeMediaType) { _, _ in
+            store.changeManualOrganizeMediaType()
+            searchSource = .all
           }
-          .disabled(store.manualOrganizeOperation.isRunning)
-
-          if !store.metadataCandidates.isEmpty {
-            Picker("匹配结果", selection: Binding(
-              get: { store.manualOrganizeSelectedCandidateID },
-              set: { store.selectManualHistoryMetadata($0) }
-            )) {
-              Text("不使用候选").tag(nil as String?)
-              ForEach(store.metadataCandidates) { candidate in
-                HStack(spacing: 10) {
-                  MobilePosterImage(url: candidate.posterUrl.flatMap(URL.init(string:)), width: 40, height: 60)
-                  VStack(alignment: .leading, spacing: 3) {
-                    Text(candidate.chineseTitle ?? candidate.title)
-                    Text([candidate.airDate.map { String($0.prefix(4)) }, candidate.mediaType == "movie" ? "电影" : "剧集", candidate.source.uppercased()].compactMap { $0 }.joined(separator: " · "))
-                      .font(.caption).foregroundStyle(.secondary)
-                  }
-                }
-                  .tag(Optional(candidate.id))
+          VStack(alignment: .leading, spacing: 6) {
+            Text("作品名称")
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+            TextField("中文、日文或英文名称", text: $store.metadataQuery, axis: .vertical)
+              .lineLimit(1...4)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+              .accessibilityLabel("作品名称")
+              .onSubmit(searchMetadata)
+          }
+          Picker("搜索来源", selection: $searchSource) {
+            Text("全部").tag(SearchSource.all)
+            Text("Bangumi").tag(SearchSource.bangumi)
+            Text("TMDB").tag(SearchSource.tmdb)
+          }
+          .pickerStyle(.menu)
+          Button(action: searchMetadata) {
+            Label("搜索作品", systemImage: "magnifyingglass")
+              .frame(maxWidth: .infinity)
+          }
+          .buttonStyle(.glass)
+          .controlSize(.regular)
+          .frame(minHeight: 44)
+          .disabled(searchDisabled)
+          if !store.manualOrganizeSourceResults.isEmpty {
+            HStack(spacing: 12) {
+              ForEach(store.manualOrganizeSourceResults) { result in
+                Text("\(result.source == "bangumi" ? "Bangumi" : "TMDB") · \(result.status == "failed" ? "失败" : result.status == "empty" ? "无结果" : "\(result.count) 项")")
+                  .foregroundStyle(result.status == "failed" ? Color.orange : Color.secondary)
               }
             }
-            .pickerStyle(.navigationLink)
+            .font(.caption)
+          }
+          if store.manualOrganizeMediaType == "movie", store.metadataCandidates.isEmpty,
+             store.manualOrganizeSourceResults.contains(where: { $0.status == "empty" }),
+             !store.manualOrganizeOperation.isRunning {
+            Text("没有找到电影候选，可换个名称搜索，或直接编辑整理信息。")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+
+          if !store.metadataCandidates.isEmpty {
+            NavigationLink {
+              MobileManualMetadataCandidatesView()
+            } label: {
+              LabeledContent("匹配结果") {
+                Text(selectedCandidate?.chineseTitle ?? selectedCandidate?.title ?? "选择作品")
+                  .lineLimit(1)
+              }
+            }
           }
           if let feedback = store.manualOrganizeOperation.feedback {
             Label {
@@ -1104,5 +1149,137 @@ struct MobileManualOrganizeSheet: View {
 
   private var canApply: Bool {
     store.organizePreview.map(ManualOrganizePresentation.canApply) ?? false
+  }
+}
+
+private struct MobileManualMetadataCandidatesView: View {
+  @EnvironmentObject private var store: AppStore
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    List {
+      Section {
+        Button("不使用候选") {
+          store.selectManualHistoryMetadata(nil)
+          dismiss()
+        }
+        .disabled(store.manualOrganizeSelectedCandidateID == nil)
+      }
+
+      Section("匹配候选") {
+        ForEach(store.metadataCandidates) { candidate in
+          MobileManualMetadataCandidateRow(
+            candidate: candidate,
+            isSelected: candidate.id == store.manualOrganizeSelectedCandidateID
+          ) {
+            store.selectManualHistoryMetadata(candidate.id)
+            dismiss()
+          }
+        }
+      }
+    }
+    .navigationTitle("匹配结果")
+    .navigationBarTitleDisplayMode(.inline)
+  }
+}
+
+private struct MobileManualMetadataCandidateRow: View {
+  var candidate: MetadataCandidate
+  var isSelected: Bool
+  var onSelect: () -> Void
+  @State private var isSummaryExpanded = false
+
+  private var displayTitle: String { candidate.chineseTitle ?? candidate.title }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Button(action: onSelect) {
+        VStack(alignment: .leading, spacing: 8) {
+          titleAndPoster
+          if let original = candidate.originalTitle,
+             original != candidate.title, original != candidate.chineseTitle {
+            Text(original)
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+          }
+          Text(candidateFacts)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          if !candidate.matchReason.isEmpty {
+            Text(candidate.matchReason.joined(separator: "，"))
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("\(displayTitle)，\(candidate.source.uppercased())，\(isSelected ? "已选择" : "选择")")
+
+      if let summary = candidate.summary, !summary.isEmpty {
+        Text(summary)
+          .font(.subheadline)
+          .lineLimit(isSummaryExpanded ? nil : 4)
+        if summary.count > 100 {
+          Button(isSummaryExpanded ? "收起简介" : "展开简介") {
+            isSummaryExpanded.toggle()
+          }
+          .font(.caption)
+        }
+      }
+
+      if let url = detailURL {
+        Link("打开详情链接", destination: url)
+          .font(.caption)
+      }
+    }
+    .padding(.vertical, 4)
+  }
+
+  private var titleAndPoster: some View {
+    HStack(alignment: .top, spacing: 12) {
+      MobilePosterImage(url: candidate.posterUrl.flatMap(URL.init(string:)), width: 54, height: 81)
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text(displayTitle)
+            .font(.headline)
+            .foregroundStyle(.primary)
+          Spacer(minLength: 4)
+          Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .foregroundStyle(.tint)
+            .accessibilityHidden(true)
+        }
+        Text(candidate.source.uppercased())
+          .font(.caption.weight(.medium))
+          .foregroundStyle(.secondary)
+        if candidate.title != candidate.chineseTitle {
+          Text(candidate.title)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+  }
+
+  private var candidateFacts: String {
+    var facts: [String] = []
+    if let mediaType = candidate.mediaType {
+      facts.append(mediaType == "movie" ? "电影" : "剧集")
+    }
+    if let date = candidate.airDate { facts.append(date) }
+    if let rating = candidate.rating { facts.append(String(format: "评分 %.1f", rating)) }
+    if let episodes = candidate.totalEpisodes ?? candidate.episodeCount { facts.append("\(episodes) 集") }
+    if let score = candidate.matchScore { facts.append(String(format: "匹配 %.2f", score)) }
+    return facts.joined(separator: " · ")
+  }
+
+  private var detailURL: URL? {
+    guard Int(candidate.externalId) != nil else { return nil }
+    switch candidate.source {
+    case "bangumi": return URL(string: "https://bgm.tv/subject/\(candidate.externalId)")
+    case "tmdb": return URL(string: "https://www.themoviedb.org/\(candidate.mediaType == "movie" ? "movie" : "tv")/\(candidate.externalId)")
+    default: return nil
+    }
   }
 }

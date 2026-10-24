@@ -505,6 +505,7 @@ final class AppStore: ObservableObject {
   @Published var manualOrganizeIsBatch = false
   @Published private(set) var manualOrganizeRequiresMultipleFiles = false
   @Published var manualOrganizeTargetID: Int?
+  @Published private(set) var manualOrganizeSourceResults: [MetadataSourceResult] = []
   @Published private(set) var manualOrganizeOperation = ManualOrganizeOperationState()
   @Published var manualOrganizeMediaType = "anime"
   @Published private(set) var isApplyingOrganizePreview = false
@@ -4274,16 +4275,22 @@ final class AppStore: ObservableObject {
       return
     }
     organizePreview = nil
+    manualOrganizeSourceResults = []
     await runManualOrganizeOperation(
       operationLabel,
       failureTitle: "\(operationLabel)失败"
     ) { operationID in
       let response = try await client.metadataSearch(query: query, sources: sources, mediaType: manualOrganizeMediaType)
       guard manualOrganizeSequence.accepts(operationID) else { throw CancellationError() }
-      guard !response.candidates.isEmpty else {
+      applyMetadataResponse(response)
+      manualOrganizeSourceResults = response.sourceResults ?? []
+      if response.candidates.isEmpty {
+        manualOrganizeSelectedCandidateID = nil
+        if manualOrganizeMediaType == "movie", response.sourceResults?.contains(where: { $0.status != "failed" }) == true {
+          return
+        }
         throw AppStoreError.userFacing(response.warnings.first ?? "没有找到匹配作品，请换个名称搜索。")
       }
-      applyMetadataResponse(response)
       configureManualOrganizeFields(response: response)
     }
   }
@@ -4312,6 +4319,7 @@ final class AppStore: ObservableObject {
     manualOrganizeSelectedCandidateID = nil
     metadataCandidates = []
     metadataWarnings = []
+    manualOrganizeSourceResults = []
     mapping.subjectKey = metadataTargetID
   }
 
@@ -4480,6 +4488,7 @@ final class AppStore: ObservableObject {
     manualOrganizeOperation = operation
     metadataCandidates = []
     metadataWarnings = []
+    manualOrganizeSourceResults = []
     metadataRecommendedCandidateID = nil
     metadataSuggestedMapping = nil
     metadataMergeSummary = nil

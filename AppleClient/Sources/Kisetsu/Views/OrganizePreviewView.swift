@@ -151,7 +151,25 @@ struct ManualHistoryOrganizeSheet: View {
   @EnvironmentObject private var store: AppStore
   var close: () -> Void
   private enum Step: Int { case details, files, confirmation }
+  private enum ManualSearchSource: String {
+    case all, bangumi, tmdb
+  }
   @State private var step: Step = .details
+  @State private var searchSource: ManualSearchSource = .all
+
+  private var searchDisabled: Bool {
+    store.manualOrganizeOperation.isRunning || store.metadataQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private func searchMetadata() {
+    Task {
+      switch searchSource {
+      case .all: await store.searchManualHistoryMetadata()
+      case .bangumi: await store.searchManualHistoryBangumiMetadata()
+      case .tmdb: await store.searchManualHistoryTMDBMetadata()
+      }
+    }
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -184,18 +202,44 @@ struct ManualHistoryOrganizeSheet: View {
             Text("电影").tag("movie")
           }
           .pickerStyle(.segmented)
-          .onChange(of: store.manualOrganizeMediaType) { _, _ in store.changeManualOrganizeMediaType() }
-          MetadataSearchControls(
-            query: $store.metadataQuery,
-            isLoading: store.manualOrganizeOperation.isRunning,
-            onSearchAll: { Task { await store.searchManualHistoryMetadata() } },
-            onSearchBangumi: { Task { await store.searchManualHistoryBangumiMetadata() } },
-            onSearchTMDB: { Task { await store.searchManualHistoryTMDBMetadata() } },
-            includesBangumi: store.manualOrganizeMediaType != "movie"
-          )
+          .onChange(of: store.manualOrganizeMediaType) { _, _ in
+            store.changeManualOrganizeMediaType()
+            searchSource = .all
+          }
+          TextField("作品名称", text: $store.metadataQuery, prompt: Text("中文、日文或英文名称"))
+            .textFieldStyle(.roundedBorder)
+            .onSubmit(searchMetadata)
+          HStack(spacing: 10) {
+            Text("搜索来源")
+            Spacer(minLength: 12)
+            Picker("搜索来源", selection: $searchSource) {
+              Text("全部").tag(ManualSearchSource.all)
+              Text("Bangumi").tag(ManualSearchSource.bangumi)
+              Text("TMDB").tag(ManualSearchSource.tmdb)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 320)
+            Button(action: searchMetadata) {
+              Label("搜索", systemImage: "magnifyingglass")
+            }
+            .disabled(searchDisabled)
+          }
+
+          if store.manualOrganizeMediaType == "movie", !store.manualOrganizeSourceResults.isEmpty {
+            HStack(spacing: 12) {
+              ForEach(store.manualOrganizeSourceResults) { result in
+                Text("\(result.source == "bangumi" ? "Bangumi" : "TMDB") · \(result.status == "failed" ? "失败" : result.status == "empty" ? "无结果" : "\(result.count) 项")")
+                  .foregroundStyle(result.status == "failed" ? Color.orange : Color.secondary)
+              }
+            }
+            .font(.caption)
+          }
 
           if store.metadataCandidates.isEmpty && !store.manualOrganizeOperation.isRunning {
-            Text("没有可靠候选时可以直接编辑下方信息，再由后端生成文件映射预览。")
+            Text(store.manualOrganizeMediaType == "movie" && !store.manualOrganizeSourceResults.isEmpty
+                 ? "没有找到电影候选，可换个名称搜索，或直接编辑下方信息。"
+                 : "没有可靠候选时可以直接编辑下方信息，再由后端生成文件映射预览。")
               .font(.caption)
               .foregroundStyle(.secondary)
           } else if !store.metadataCandidates.isEmpty {

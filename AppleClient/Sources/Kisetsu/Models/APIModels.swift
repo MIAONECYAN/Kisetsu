@@ -2548,10 +2548,20 @@ struct MetadataMatchRequest: Codable {
 struct MetadataSearchResponse: Codable {
   var candidates: [MetadataCandidate]
   var warnings: [String]
+  var sourceResults: [MetadataSourceResult]? = nil
   var parsedTitle: ParsedAnimeTitle?
   var recommendedCandidateId: String?
   var suggestedMapping: PlexSeasonMapping?
   var mergeSummary: String?
+}
+
+struct MetadataSourceResult: Codable, Identifiable {
+  var source: String
+  var status: String
+  var count: Int
+  var message: String?
+
+  var id: String { source }
 }
 
 struct TMDBSeasonOption: Codable, Identifiable, Hashable {

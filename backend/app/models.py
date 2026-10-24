@@ -71,7 +71,7 @@ class HealthResponse(BaseModel):
     ok: bool = True
     status: str = "ok"
     app: str = "Kisetsu"
-    version: str = "1.0.11"
+    version: str = "1.0.12"
     message: str = "后端连接正常"
     time: datetime
     port: int | None = None
@@ -1626,9 +1626,17 @@ class MetadataCandidate(BaseModel):
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
+class MetadataSourceResult(BaseModel):
+    source: Literal["bangumi", "tmdb"]
+    status: Literal["results", "empty", "failed"]
+    count: int = 0
+    message: str | None = None
+
+
 class MetadataSearchResponse(BaseModel):
     candidates: list[MetadataCandidate] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    source_results: list[MetadataSourceResult] = Field(default_factory=list)
     parsed_title: ParsedAnimeTitle | None = None
     recommended_candidate_id: str | None = None
     suggested_mapping: PlexSeasonMapping | None = None
