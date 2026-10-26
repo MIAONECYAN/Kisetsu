@@ -1197,8 +1197,6 @@ struct MobileSubscriptionEditorView: View {
   @State private var isSaving = false
   @State private var isTesting = false
   @State private var matchTestSession: SubscriptionMatchTestSession?
-  @State private var isAdvancedMatchingExpanded = false
-  @State private var episodeRuleEditorRoute: MobileEpisodeRuleEditorRoute?
 
   var body: some View {
     NavigationStack {
@@ -1418,62 +1416,25 @@ struct MobileSubscriptionEditorView: View {
         }
 
         Section("集数识别") {
-          Picker("规则来源", selection: episodeRuleSourceBinding) {
-            Text("使用全局规则").tag("global")
-            Text("订阅专属规则").tag("subscription")
+          NavigationLink {
+            MobileSubscriptionEpisodeRuleView(
+              rules: $store.subscriptionEpisodeParseRules,
+              useCustom: $store.subscriptionUseCustomEpisodeRules
+            )
+            .environmentObject(store)
+          } label: {
+            LabeledContent(
+              "配置专属规则",
+              value: store.subscriptionUseCustomEpisodeRules && !store.subscriptionEpisodeParseRules.isEmpty
+                ? "已启用"
+                : store.subscriptionEpisodeParseRules.isEmpty ? "使用全局规则" : "已停用"
+            )
           }
-          .pickerStyle(.segmented)
-
           MobileSubscriptionInlineHelp(
             store.subscriptionUseCustomEpisodeRules
               ? "专属规则会优先于全局规则尝试，只影响当前订阅。"
               : "当前使用设置页中的全局识别规则。"
           )
-
-          if store.subscriptionUseCustomEpisodeRules {
-            MobileEpisodeRuleManager(
-              rules: $store.subscriptionEpisodeParseRules,
-              builtinRules: store.builtinEpisodeParseRules,
-              testTitle: $store.subscriptionEpisodeRuleTestTitle,
-              testResponse: store.lastEpisodeRuleTestResponse,
-              isTesting: isTesting,
-              addTemplate: { store.addEpisodeParseRule(template: $0) },
-              runTest: {
-                isTesting = true
-                if MobileDebugConfiguration.usesFixturesAtRuntime {
-                  #if DEBUG
-                  store.lastEpisodeRuleTestResponse = MobileDebugFixtureData.episodeRuleTestResponse
-                  #endif
-                } else {
-                  _ = await store.testEpisodeParseRules()
-                }
-                isTesting = false
-              },
-              presentEditor: { episodeRuleEditorRoute = $0 }
-            )
-          }
-        }
-
-        Section {
-          DisclosureGroup(isExpanded: $isAdvancedMatchingExpanded) {
-            Toggle("启用正则表达式", isOn: $store.subscriptionRegexEnabled)
-              .tint(.blue)
-            MobileSubscriptionTextEditor(
-              label: "资源标题正则表达式",
-              hint: "对资源主标题与副标题进行匹配；留空或关闭时不参与匹配。",
-              text: $store.subscriptionRegex,
-              minHeight: 72
-            )
-              .font(.body.monospaced())
-              .disabled(!store.subscriptionRegexEnabled)
-              .opacity(store.subscriptionRegexEnabled ? 1 : 0.58)
-          } label: {
-            Label("资源标题正则", systemImage: "curlybraces")
-          }
-        } header: {
-          Text("高级匹配")
-        } footer: {
-          Text("这是资源标题过滤，不会改变集数识别规则。")
         }
 
         Section {
@@ -1589,25 +1550,35 @@ struct MobileSubscriptionEditorView: View {
           Text("保存路径、分类和标签留空时使用下载器默认设置。")
         }
 
-        Section("保存前检查") {
-          Button(store.subscriptionSourceType == "rss" ? "测试 RSS" : "测试当前匹配规则", systemImage: "checkmark.seal") {
-            if store.subscriptionSourceType == "rss" {
-              Task {
-                isTesting = true
-                _ = await store.testRSSForm()
-                isTesting = false
+        Section {
+          VStack(spacing: 10) {
+            Button {
+              if store.subscriptionSourceType == "rss" {
+                Task {
+                  isTesting = true
+                  _ = await store.testRSSForm()
+                  isTesting = false
+                }
+              } else {
+                matchTestSession = store.makeSubscriptionMatchTestSession()
               }
-            } else {
-              matchTestSession = store.makeSubscriptionMatchTestSession()
+            } label: {
+              Label(store.subscriptionSourceType == "rss" ? "测试 RSS" : "测试当前匹配规则", systemImage: "checkmark.seal")
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glass)
+            .controlSize(.large)
+            .disabled(isTesting || isSaving || (store.subscriptionSourceType == "rss" && submitDisabledReason != nil))
+            if let submitDisabledReason {
+              Label(submitDisabledReason, systemImage: "info.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
           }
-          .buttonStyle(.glass)
-          .disabled(isTesting || isSaving || (store.subscriptionSourceType == "rss" && submitDisabledReason != nil))
-          if let submitDisabledReason {
-            Label(submitDisabledReason, systemImage: "info.circle")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 4)
+          .listRowBackground(Color.clear)
         }
       }
       .mobileStatusNavigationTitle(store.subscriptionEditorTitle)
@@ -1645,12 +1616,6 @@ struct MobileSubscriptionEditorView: View {
             .glassEffect(.regular, in: .rect(cornerRadius: 18))
         }
       }
-      .navigationDestination(item: $episodeRuleEditorRoute) { route in
-        MobileEpisodeRuleEditorDestination(route: route) { updated in
-          MobileEpisodeRuleCollection.save(updated, to: &store.subscriptionEpisodeParseRules)
-        }
-        .environmentObject(store)
-      }
       .sheet(item: $matchTestSession) { session in
         MobileSubscriptionMatchTestSheet(session: session)
           .environmentObject(store)
@@ -1671,13 +1636,6 @@ struct MobileSubscriptionEditorView: View {
       set: { selected in
         if selected { store.selectedSiteIDs.insert(id) } else { store.selectedSiteIDs.remove(id) }
       }
-    )
-  }
-
-  private var episodeRuleSourceBinding: Binding<String> {
-    Binding(
-      get: { store.subscriptionUseCustomEpisodeRules ? "subscription" : "global" },
-      set: { store.subscriptionUseCustomEpisodeRules = $0 == "subscription" }
     )
   }
 

@@ -735,6 +735,10 @@ struct APIClient {
     )
   }
 
+  func generateEpisodeRules(_ requestBody: EpisodeRuleGenerateRequest) async throws -> EpisodeRuleGenerateResponse {
+    try await request("api/episode-rules/generate-from-examples", method: "POST", body: requestBody)
+  }
+
   func testQbittorrent(_ config: QbittorrentConfig) async throws -> QbittorrentTestResponse {
     try await request("api/qbittorrent/test", method: "POST", body: config)
   }

@@ -339,6 +339,7 @@ final class AppStore: ObservableObject {
   @Published var organizeTargetEnabled = true
   @Published var lastOrganizeTargetValidation: OrganizeTargetValidateResponse?
   @Published var searchKeyword = ""
+  private var searchInputRevision: UInt64 = 0
   @Published private(set) var searchHistory: [String] = []
   @Published var searchResults: [SearchResult] = []
   @Published var visibleSearchResults: [SearchResult] = []
@@ -2328,6 +2329,10 @@ final class AppStore: ObservableObject {
     await performSearch(page: page, recordHistory: true)
   }
 
+  func searchInputDidChange() {
+    searchInputRevision &+= 1
+  }
+
   func performPreviousSearchPage() async {
     guard searchCanGoToPreviousPage else { return }
     await performSearch(page: searchCurrentPage - 1, recordHistory: false)
@@ -2352,6 +2357,7 @@ final class AppStore: ObservableObject {
     }
     let requestedPage = searchPaginationEnabled ? max(1, page ?? 1) : nil
     let endpoint = backendURL
+    let inputRevision = searchInputRevision
     let requestClient = client
     if recordHistory { rememberSearch(keyword) }
     let succeeded = await run(
@@ -2371,6 +2377,7 @@ final class AppStore: ObservableObject {
         timeoutSeconds: searchSettings.siteTimeoutSeconds
       )
       guard self.backendURL == endpoint,
+            self.searchInputRevision == inputRevision,
             self.searchKeyword.trimmingCharacters(in: .whitespacesAndNewlines) == keyword
       else {
         throw CancellationError()
@@ -3704,7 +3711,7 @@ final class AppStore: ObservableObject {
         if (diagnostics.excludedByBatchPolicy ?? 0) > 0 || (diagnostics.excludedByEpisodeCoverage ?? 0) > 0 {
           collectionSummary = "，合集策略排除 \(diagnostics.excludedByBatchPolicy ?? 0)，范围未覆盖 \(diagnostics.excludedByEpisodeCoverage ?? 0)"
         }
-        appendLog("订阅刷新：抓取 \(diagnostics.totalFetched)，匹配 \(diagnostics.matchedCount)，字幕组过滤 \(diagnostics.excludedByFansub)，包含词过滤 \(diagnostics.excludedByInclude)，排除词过滤 \(diagnostics.excludedByExclude)，分辨率过滤 \(diagnostics.excludedByResolution)，正则过滤 \(diagnostics.excludedByRegex)，集数过滤 \(diagnostics.excludedByEpisodeFilter)\(collectionSummary)\(sourceSummary)，跳过 \(response.skipped.count)。")
+        appendLog("订阅刷新：抓取 \(diagnostics.totalFetched)，匹配 \(diagnostics.matchedCount)，字幕组过滤 \(diagnostics.excludedByFansub)，包含词过滤 \(diagnostics.excludedByInclude)，排除词过滤 \(diagnostics.excludedByExclude)，分辨率过滤 \(diagnostics.excludedByResolution)，集数过滤 \(diagnostics.excludedByEpisodeFilter)\(collectionSummary)\(sourceSummary)，跳过 \(response.skipped.count)。")
       } else {
         appendLog("订阅刷新：匹配 \(response.matched.count)，新增 \(response.added.count)，跳过 \(response.skipped.count)。")
       }

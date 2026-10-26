@@ -101,18 +101,19 @@ enum OverviewPresentation {
 
   static func date(_ raw: String?) -> Date? {
     guard let raw else { return nil }
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
+    return try? Date(raw, strategy: Date.ISO8601FormatStyle())
   }
 
   static func playlists(_ items: [PlexPlaylistSummary]) -> [PlexPlaylistSummary] {
     var seen = Set<String>()
-    return items.filter { $0.title.trimmingCharacters(in: .whitespacesAndNewlines) != "稍后观看" }.sorted {
-      let lhs = date($0.updatedAt), rhs = date($1.updatedAt)
-      if lhs != rhs { return (lhs ?? .distantPast) > (rhs ?? .distantPast) }
-      return $0.ratingKey < $1.ratingKey
-    }.filter { seen.insert($0.ratingKey).inserted }
+    return items.filter { $0.title.trimmingCharacters(in: .whitespacesAndNewlines) != "稍后观看" }
+      .map { (playlist: $0, updatedAt: date($0.updatedAt) ?? .distantPast) }
+      .sorted {
+        if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
+        return $0.playlist.ratingKey < $1.playlist.ratingKey
+      }
+      .map(\.playlist)
+      .filter { seen.insert($0.ratingKey).inserted }
   }
 
   static func focus(subscriptions: [Subscription], overview: OverviewResponse?, now: Date = Date()) -> [Subscription] {
@@ -121,11 +122,13 @@ enum OverviewPresentation {
       return now.timeIntervalSince(date) >= 0 && now.timeIntervalSince(date) <= 604_800
     }.compactMap(\.subscriptionId)
     let downloading = (overview?.downloadingItems ?? []).compactMap { $0.target.subscriptionId }
-    let all = subscriptions.sorted {
-      let left = date($0.updatedAt ?? $0.createdAt) ?? .distantPast
-      let right = date($1.updatedAt ?? $1.createdAt) ?? .distantPast
-      return left == right ? $0.id < $1.id : left > right
-    }.map(\.id)
+    let all = subscriptions
+      .map { (id: $0.id, updatedAt: date($0.updatedAt ?? $0.createdAt) ?? .distantPast) }
+      .sorted {
+        if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
+        return $0.id < $1.id
+      }
+      .map(\.id)
     var seen = Set<Int>()
     let lookup = Dictionary(subscriptions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     return (recent + downloading + all).filter { seen.insert($0).inserted }.compactMap { lookup[$0] }

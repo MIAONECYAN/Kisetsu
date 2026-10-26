@@ -519,8 +519,7 @@ private struct SubscriptionForm: View {
   @EnvironmentObject private var store: AppStore
   var smartChoice: SmartSubscriptionChoice?
   @State private var showEpisodeRules = false
-  @State private var showEpisodeRecognition = false
-  @State private var showAdvancedMatching = false
+  @State private var showSubscriptionEpisodeRules = false
   @State private var showMatchRuleHelp = false
   @State private var showAISmartPrefillSummary = true
   @State private var matchTestSession: SubscriptionMatchTestSession?
@@ -755,51 +754,23 @@ private struct SubscriptionForm: View {
         }
       }
 
-      DisclosureGroup("集数识别", isExpanded: $showEpisodeRecognition) {
-        VStack(alignment: .leading, spacing: 12) {
-          Picker("规则来源", selection: Binding {
-            store.subscriptionUseCustomEpisodeRules ? "subscription" : "global"
-          } set: { value in
-            store.subscriptionUseCustomEpisodeRules = value == "subscription"
-          }) {
-            Text("使用全局规则").tag("global")
-            Text("为这个订阅添加专属规则").tag("subscription")
-          }
-          .pickerStyle(.segmented)
-
-          Text("大多数订阅使用全局规则即可。如果这个订阅的资源标题无法正确识别集数，可以添加专属规则。专属规则会先于全局规则尝试。")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-          if store.subscriptionUseCustomEpisodeRules {
-            EpisodeRuleManagerView(
-              rules: $store.subscriptionEpisodeParseRules,
-              builtinRules: store.builtinEpisodeParseRules,
-              scopeTitle: "订阅专属规则",
-              emptyTitle: "还没有专属规则",
-              emptyDescription: "这个订阅会先使用全局规则。只有特殊标题格式识别失败时，才需要添加专属规则。",
-              showBuiltinRules: false,
-              compactMode: true
-            )
-          } else {
-            Text("当前使用设置页里的全局规则。")
+      GroupBox("集数识别") {
+        HStack(spacing: 12) {
+          VStack(alignment: .leading, spacing: 3) {
+            Text(store.subscriptionUseCustomEpisodeRules && !store.subscriptionEpisodeParseRules.isEmpty
+                 ? "已配置 \(Set(store.subscriptionEpisodeParseRules.map { $0.generationGroupId ?? $0.id }).count) 组专属规则"
+                 : "使用全局规则")
+              .font(.subheadline.weight(.medium))
+            Text("专属规则优先；未命中时继续使用全局集数识别。")
               .font(.caption)
               .foregroundStyle(.secondary)
           }
+          Spacer()
+          Button("配置专属规则", systemImage: "slider.horizontal.3") {
+            showSubscriptionEpisodeRules = true
+          }
         }
-      }
-
-      DisclosureGroup("高级匹配", isExpanded: $showAdvancedMatching) {
-        VStack(alignment: .leading, spacing: 10) {
-          Toggle("启用正则表达式", isOn: $store.subscriptionRegexEnabled)
-          LabeledTextField(
-            label: "正则表达式",
-            placeholder: "例如：\\[Baha\\].*1080P",
-            text: $store.subscriptionRegex,
-            help: "对资源主标题与副标题进行匹配；留空或关闭时不参与匹配。",
-            disabled: !store.subscriptionRegexEnabled
-          )
-        }
+        .padding(.vertical, 4)
       }
 
       DisclosureGroup("匹配规则说明", isExpanded: $showMatchRuleHelp) {
@@ -811,10 +782,9 @@ private struct SubscriptionForm: View {
           Text("5. 应用排除词过滤")
           Text("6. 应用分辨率过滤")
           Text("7. 应用可选的视频体积过滤")
-          Text("8. 启用正则后，对资源主标题与副标题应用正则")
-          Text("9. 解析集数并应用指定集数和集数偏移")
-          Text("10. 自动下载时，同集普通资源选择体积最大的一个")
-          Text("11. 去重并写入剧集状态")
+          Text("8. 解析集数并应用指定集数和集数偏移")
+          Text("9. 自动下载时，同集普通资源选择体积最大的一个")
+          Text("10. 去重并写入剧集状态")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -985,6 +955,13 @@ private struct SubscriptionForm: View {
     .sheet(item: $matchTestSession) { session in
       SubscriptionMatchTestSheet(session: session)
         .environmentObject(store)
+    }
+    .sheet(isPresented: $showSubscriptionEpisodeRules) {
+      SubscriptionEpisodeRuleSheet(
+        rules: $store.subscriptionEpisodeParseRules,
+        useCustom: $store.subscriptionUseCustomEpisodeRules
+      )
+      .environmentObject(store)
     }
     .task {
       if store.subscriptionGroups.isEmpty { await store.loadSubscriptionGroups() }
@@ -4343,7 +4320,7 @@ private struct RefreshSummary: View {
       if let diagnostics = response.diagnostics {
         RefreshLogSection(title: "搜索诊断") {
           Text("搜索 \(diagnostics.pagesFetched ?? 0) 页 · 抓取 \(diagnostics.totalFetched) · 去重后 \(diagnostics.totalUnique ?? diagnostics.totalFetched) · 匹配 \(diagnostics.matchedCount)")
-          Text("字幕组过滤 \(diagnostics.excludedByFansub) · 包含词过滤 \(diagnostics.excludedByInclude) · 排除词过滤 \(diagnostics.excludedByExclude) · 分辨率过滤 \(diagnostics.excludedByResolution) · 正则过滤 \(diagnostics.excludedByRegex) · 集数过滤 \(diagnostics.excludedByEpisodeFilter) · 重复 \(diagnostics.duplicateCount)")
+          Text("字幕组过滤 \(diagnostics.excludedByFansub) · 包含词过滤 \(diagnostics.excludedByInclude) · 排除词过滤 \(diagnostics.excludedByExclude) · 分辨率过滤 \(diagnostics.excludedByResolution) · 集数过滤 \(diagnostics.excludedByEpisodeFilter) · 重复 \(diagnostics.duplicateCount)")
           if (diagnostics.matchedBySubtitle ?? 0) > 0 || (diagnostics.episodeParsedFromSubtitle ?? 0) > 0 {
             Text("副标题番名命中 \(diagnostics.matchedBySubtitle ?? 0) · 副标题解析集数 \(diagnostics.episodeParsedFromSubtitle ?? 0)")
           }
@@ -4385,7 +4362,6 @@ private struct RefreshSummary: View {
     if diagnostics.excludedByExclude > 0 { return "资源存在，但命中了排除词。" }
     if diagnostics.excludedByResolution > 0 { return "资源存在，但分辨率不匹配。" }
     if (diagnostics.excludedBySize ?? 0) > 0 { return "资源存在，但未通过视频体积过滤。" }
-    if diagnostics.excludedByRegex > 0 { return "资源存在，但正则表达式没有匹配。" }
     if (diagnostics.excludedByBatchPolicy ?? 0) > 0 { return "资源存在，但合集被当前合集策略排除。" }
     if (diagnostics.excludedByEpisodeCoverage ?? 0) > 0 { return "资源存在，但合集或单集没有覆盖当前需要下载的集数。" }
     if diagnostics.excludedByEpisodeFilter > 0 { return "资源存在，但不在指定集数范围内。" }

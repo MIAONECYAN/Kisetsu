@@ -10,6 +10,7 @@ import re
 import time
 import threading
 import unicodedata
+import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -67,6 +68,11 @@ from app.models import (
     DownloaderRoutingSettings,
     DownloaderStatus,
     EpisodeParseRule,
+    EpisodeRuleExampleResult,
+    EpisodeRuleGenerateRequest,
+    EpisodeRuleGenerateResponse,
+    EpisodeRuleGeneratedCandidate,
+    EpisodeRuleLabeledExample,
     EpisodeRulePreviewRequest,
     EpisodeRulePreviewResponse,
     EpisodeRuleSettingsResponse,
@@ -609,7 +615,173 @@ def normalize_episode_rule(rule: EpisodeParseRule, priority: int) -> EpisodePars
         if generated is None:
             raise ValueError("；".join(suggestions))
         return generated.model_copy(update={"enabled": rule.enabled, "priority": priority})
+    if rule.mode == "examples":
+        if not rule.generation_group_id or not rule.examples:
+            raise ValueError("多样例规则缺少规则组或样例。")
+        try:
+            re.compile(rule.pattern)
+        except re.error as exc:
+            raise ValueError(f"多样例规则无效：{exc}") from exc
     return rule.model_copy(update={"priority": priority, "rule_type": "user"})
+
+
+def _generated_rule_result(
+    example: EpisodeRuleLabeledExample,
+    rules: list[EpisodeParseRule],
+) -> EpisodeRuleExampleResult:
+    actual_episode = None
+    actual_end = None
+    matched = False
+    for rule in rules:
+        match = re.search(rule.pattern, example.title, flags=re.I)
+        if match is None:
+            continue
+        matched = True
+        groups = match.groupdict()
+        raw_episode = groups.get(rule.episode_group) or groups.get(rule.start_group)
+        raw_end = groups.get(rule.end_group)
+        actual_episode = int(raw_episode) if raw_episode and raw_episode.isdigit() else None
+        actual_end = int(raw_end) if raw_end and raw_end.isdigit() else None
+        break
+    if not example.should_match:
+        status = "false_positive" if matched else "correct"
+        message = "不应匹配的标题被识别为集数。" if status == "false_positive" else "符合预期：专属规则未匹配。"
+    elif actual_episode is None:
+        status = "missed"
+        message = "没有识别到预期集数。"
+    elif actual_episode != example.expected_episode or actual_end != example.expected_end:
+        status = "wrong"
+        message = f"识别为第 {actual_episode} 集，不是预期的第 {example.expected_episode} 集。"
+    else:
+        status = "correct"
+        message = f"正确识别第 {actual_episode} 集。"
+    return EpisodeRuleExampleResult(
+        title=example.title,
+        expected_episode=example.expected_episode,
+        expected_end=example.expected_end,
+        actual_episode=actual_episode,
+        actual_end=actual_end,
+        status=status,
+        message=message,
+    )
+
+
+def _generated_rule_anchor_pattern(pattern: str, anchors: list[str]) -> str:
+    if not anchors:
+        return pattern
+    return "".join(f"(?=.*{re.escape(anchor)})" for anchor in anchors) + pattern
+
+
+def _validated_episode_anchors(
+    raw: object,
+    examples: list[EpisodeRuleLabeledExample],
+    limit: int,
+) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    titles = [item.title.casefold() for item in examples if item.should_match]
+    result: list[str] = []
+    for value in raw:
+        if not isinstance(value, str):
+            continue
+        anchor = value.strip()
+        if not 2 <= len(anchor) <= 32 or any(char.isdigit() for char in anchor):
+            continue
+        if not all(anchor.casefold() in title for title in titles):
+            continue
+        if anchor.casefold() not in {item.casefold() for item in result}:
+            result.append(anchor)
+        if len(result) == limit:
+            break
+    return result
+
+
+def _generate_episode_candidate(
+    name: str,
+    examples: list[EpisodeRuleLabeledExample],
+    *,
+    profile: Literal["default", "lenient", "balanced", "strict"],
+    anchors: list[str] | None = None,
+) -> EpisodeRuleGeneratedCandidate:
+    anchors = anchors or []
+    source_rules: list[EpisodeParseRule] = []
+    seen_patterns: set[str] = set()
+    group_id = f"examples-{uuid.uuid4().hex}"
+    for example in examples:
+        if not example.should_match:
+            continue
+        if not example.marks:
+            raise ValueError("应匹配样例必须标记集数。")
+        rule, suggestions, _, _, _ = visual_rule_from_marks(
+            example.title, example.marks, name=name
+        )
+        if rule is None:
+            raise ValueError("；".join(suggestions))
+        if rule.pattern in seen_patterns:
+            continue
+        seen_patterns.add(rule.pattern)
+        rule.pattern = _generated_rule_anchor_pattern(rule.pattern, anchors)
+        rule.generated_pattern = rule.pattern
+        rule.mode = "examples"
+        rule.generation_group_id = group_id
+        rule.examples = examples
+        source_rules.append(rule)
+
+    viable: list[tuple[EpisodeParseRule, set[int]]] = []
+    for rule in source_rules:
+        results = [_generated_rule_result(example, [rule]) for example in examples]
+        if any(result.status in {"wrong", "false_positive"} for result in results):
+            continue
+        covers = {index for index, result in enumerate(results) if result.status == "correct" and examples[index].should_match}
+        if covers:
+            viable.append((rule, covers))
+
+    remaining = {index for index, example in enumerate(examples) if example.should_match}
+    chosen: list[EpisodeParseRule] = []
+    while remaining:
+        best = max(viable, key=lambda item: len(item[1] & remaining), default=None)
+        if best is None or not (best[1] & remaining):
+            break
+        rule = best[0].model_copy(update={
+            "id": f"generated-{uuid.uuid4().hex}",
+            "priority": len(chosen),
+            "name": name if len(source_rules) == 1 else f"{name} · 格式 {len(chosen) + 1}",
+        })
+        chosen.append(rule)
+        remaining -= best[1]
+        viable.remove(best)
+
+    diagnostic_rules = chosen or source_rules
+    results = [_generated_rule_result(example, diagnostic_rules) for example in examples]
+    ok = bool(chosen) and all(result.status == "correct" for result in results)
+    if ok:
+        message = "全部样例验证通过。" if len(examples) > 1 else "仅验证了 1 条样例；建议加入其他发布格式。"
+    else:
+        message = "仍有误识别或未识别的样例，请补充标记或样例，不能保存此候选。"
+    if profile in {"balanced", "strict"} and not anchors:
+        message += "没有可靠的共同锚词，此档与默认规则相同。"
+    return EpisodeRuleGeneratedCandidate(
+        profile=profile, ok=ok, anchors=anchors, rules=chosen, results=results, message=message
+    )
+
+
+def _validate_generated_rule_groups(rules: list[EpisodeParseRule]) -> None:
+    groups: dict[str, list[EpisodeParseRule]] = {}
+    for rule in rules:
+        if rule.mode == "examples":
+            if not rule.generation_group_id or not rule.examples:
+                raise ValueError("多样例规则缺少规则组或样例。")
+            try:
+                re.compile(rule.pattern)
+            except re.error as exc:
+                raise ValueError(f"多样例规则无效：{exc}") from exc
+            groups.setdefault(rule.generation_group_id, []).append(rule)
+    for group in groups.values():
+        examples = group[0].examples
+        if any(rule.examples != examples for rule in group):
+            raise ValueError("同一规则组的样例不一致。")
+        if not all(_generated_rule_result(example, group).status == "correct" for example in examples):
+            raise ValueError("多样例规则未通过全部样例验证，不能保存。")
 
 
 def episode_rule_preview_message(parsed, suggestions: list[str]) -> tuple[bool, str, list[str]]:
@@ -1739,6 +1911,87 @@ async def suggest_episode_rule_ai(request: AITitleAnalyzeRequest, store: Store =
     return await _call_ai_title_analysis(stored_ai_settings(store), request, suggest_rule=True)
 
 
+async def _suggest_episode_anchors(
+    settings: AISettings, examples: list[EpisodeRuleLabeledExample]
+) -> dict[str, object]:
+    api_base_url = _ai_api_base_url(settings.provider, settings.base_url)
+    url = ai_endpoint_url(settings.provider, api_base_url, "chat/completions") if api_base_url else None
+    if not url:
+        raise ValueError("AI 地址无效。")
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你只从所有应匹配标题共同拥有的非数字文字中挑选稳定锚词。"
+                "只返回 JSON：{\"balanced\": [\"一个锚词\"], \"strict\": [\"锚词一\", \"锚词二\"]}。"
+                "不要输出正则表达式、解释、API Key、Cookie、下载路径或其他字段。"
+                "锚词应是作品名或发布组等有辨识度的文本，不要选编码、分辨率和常见格式词。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {"positive_titles": [item.title for item in examples if item.should_match],
+                 "negative_titles": [item.title for item in examples if not item.should_match]},
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    payload = build_chat_completion_payload(settings.provider, settings.model, messages)
+    async with httpx.AsyncClient(timeout=ai_request_timeout(settings.provider)) as client:
+        response = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {settings.api_key}", "Content-Type": "application/json"},
+            json=payload,
+        )
+    failure = failure_from_response(settings.provider, response)
+    if failure:
+        raise ValueError(failure.message)
+    try:
+        return extract_chat_completion_content(response)
+    except AIProviderFailure as exc:
+        raise ValueError(exc.message) from exc
+
+
+@router.post("/episode-rules/generate-from-examples", response_model=EpisodeRuleGenerateResponse)
+async def generate_episode_rule_from_examples(
+    request: EpisodeRuleGenerateRequest,
+    store: Store = Depends(get_store),
+) -> EpisodeRuleGenerateResponse:
+    if not any(item.should_match for item in request.examples):
+        raise HTTPException(status_code=400, detail="至少需要一条应匹配的标题样例。")
+    try:
+        default = _generate_episode_candidate(request.name, request.examples, profile="default")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    settings = stored_ai_settings(store)
+    ai_configured = bool(
+        settings.enabled and settings.provider != "none" and settings.model and settings.api_key
+        and _ai_api_base_url(settings.provider, settings.base_url)
+    )
+    candidates = [default]
+    message = "默认规则已生成；AI 未请求。"
+    if request.use_ai and not ai_configured:
+        message = "AI 未配置，已保留默认生成结果。"
+    elif request.use_ai:
+        try:
+            proposed = await _suggest_episode_anchors(settings, request.examples)
+            profiles: list[tuple[Literal["lenient", "balanced", "strict"], int]] = [
+                ("lenient", 0), ("balanced", 1), ("strict", 2)
+            ]
+            for profile, limit in profiles:
+                anchors = _validated_episode_anchors(proposed.get(profile), request.examples, limit) if limit else []
+                candidates.append(
+                    _generate_episode_candidate(request.name, request.examples, profile=profile, anchors=anchors)
+                )
+            message = "AI 已提出三档约束；每档均经过全部样例验证，未通过的候选不能保存。"
+        except (httpx.RequestError, ValueError) as exc:
+            message = f"AI 生成失败，默认结果仍可使用：{exc}"
+    return EpisodeRuleGenerateResponse(
+        candidates=candidates, ai_configured=ai_configured, message=message
+    )
+
+
 @router.post("/episode-rules/explain", response_model=EpisodeRulePreviewResponse)
 async def explain_episode_rule_from_marks(request: EpisodeRulePreviewRequest) -> EpisodeRulePreviewResponse:
     return await preview_episode_rule_from_marks(request)
@@ -1772,6 +2025,7 @@ async def save_episode_rule_settings(
             normalize_episode_rule(rule, index)
             for index, rule in enumerate(sorted(request.user_rules, key=lambda item: item.priority))
         ]
+        _validate_generated_rule_groups(normalized)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     store.set_config("episode_parse_rules", {"user_rules": [rule.model_dump(mode="json") for rule in normalized]})
@@ -2062,13 +2316,12 @@ def _organize_policy_or_400(data: dict, fallback: OrganizePolicySettings) -> Org
 
 def _with_default_organize_target(request: SubscriptionCreate, store: Store) -> SubscriptionCreate:
     data = request.model_dump(mode="json")
+    try:
+        _validate_generated_rule_groups(request.episode_parse_rules)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not data.get("sites"):
         raise HTTPException(status_code=400, detail="请至少选择一个订阅来源站点。")
-    if data.get("regex_enabled") and data.get("regex"):
-        try:
-            re.compile(str(data["regex"]))
-        except re.error as exc:
-            raise HTTPException(status_code=400, detail=f"正则表达式语法错误：{exc}") from exc
     try:
         parse_episode_filter(data.get("episode_filter"))
     except ValueError as exc:
@@ -6122,7 +6375,7 @@ async def test_subscription_match(
         f"{search_scope_message}，抓取 {diagnostics.pages_fetched} 页、{diagnostics.total_fetched} 条，去重后 {diagnostics.total_unique} 条，匹配 {diagnostics.matched_count} 条；"
         f"字幕组过滤 {diagnostics.excluded_by_fansub} 条，包含词过滤 {diagnostics.excluded_by_include} 条，"
         f"排除词过滤 {diagnostics.excluded_by_exclude} 条，分辨率过滤 {diagnostics.excluded_by_resolution} 条，"
-        f"正则过滤 {diagnostics.excluded_by_regex} 条，集数过滤 {diagnostics.excluded_by_episode_filter} 条，"
+        f"集数过滤 {diagnostics.excluded_by_episode_filter} 条，"
         f"其中合集策略排除 {diagnostics.excluded_by_batch_policy} 条、范围未覆盖 {diagnostics.excluded_by_episode_coverage} 条；"
         f"副标题番名命中 {diagnostics.matched_by_subtitle} 条、副标题集数解析 {diagnostics.episode_parsed_from_subtitle} 条，"
         f"季度不匹配 {diagnostics.excluded_by_season_mismatch} 条，metadata 不匹配 {diagnostics.excluded_by_metadata_mismatch + diagnostics.excluded_by_bangumi_id_mismatch} 条。"
@@ -9715,6 +9968,7 @@ async def update_subscription_episode_rules(
         raise HTTPException(status_code=404, detail="订阅不存在。")
     try:
         rules = [normalize_episode_rule(rule, index) for index, rule in enumerate(sorted(request.episode_parse_rules, key=lambda item: item.priority))]
+        _validate_generated_rule_groups(rules)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     data["episode_parse_rules"] = [rule.model_dump(mode="json") for rule in rules]

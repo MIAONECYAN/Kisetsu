@@ -1060,6 +1060,49 @@ struct EpisodeParseRule: Codable, Identifiable, Hashable {
   var description: String?
   var visualMarks: [EpisodeRuleVisualMark] = []
   var generatedPattern: String?
+  var examples: [EpisodeRuleLabeledExample] = []
+  var generationGroupId: String?
+}
+
+struct EpisodeRuleLabeledExample: Codable, Hashable {
+  var title: String
+  var expectedEpisode: Int?
+  var expectedEnd: Int?
+  var shouldMatch: Bool
+  var marks: [EpisodeRuleVisualMark]
+}
+
+struct EpisodeRuleGenerateRequest: Codable {
+  var name: String
+  var examples: [EpisodeRuleLabeledExample]
+  var useAi: Bool
+}
+
+struct EpisodeRuleExampleResult: Codable, Hashable {
+  var title: String
+  var expectedEpisode: Int?
+  var expectedEnd: Int?
+  var actualEpisode: Int?
+  var actualEnd: Int?
+  var status: String
+  var message: String
+}
+
+struct EpisodeRuleGeneratedCandidate: Codable, Hashable, Identifiable {
+  var profile: String
+  var ok: Bool
+  var anchors: [String]
+  var rules: [EpisodeParseRule]
+  var results: [EpisodeRuleExampleResult]
+  var message: String
+
+  var id: String { profile }
+}
+
+struct EpisodeRuleGenerateResponse: Codable {
+  var candidates: [EpisodeRuleGeneratedCandidate]
+  var aiConfigured: Bool
+  var message: String
 }
 
 struct EpisodeRuleVisualMark: Codable, Identifiable, Hashable {

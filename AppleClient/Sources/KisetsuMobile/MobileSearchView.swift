@@ -8,6 +8,8 @@ struct MobileSearchView: View {
   @State private var showingSettings = false
   @AppStorage("searchBrowserMode") private var browserMode = MobileBrowserMode.inApp.rawValue
   @FocusState private var searchFocused: Bool
+  @State private var searchDraft = ""
+  @State private var searchDraftInitialized = false
   @State private var selectedResult: SearchResult?
   @State private var downloadQueue = MobileSearchDownloadQueue()
   @State private var downloadDraft: MobileSearchDownloadDraft?
@@ -26,6 +28,7 @@ struct MobileSearchView: View {
             ForEach(store.searchHistory, id: \.self) { query in
               HStack(spacing: 12) {
                 Button {
+                  searchDraft = query
                   store.fillSearchFromHistory(query)
                   searchFocused = false
                 } label: {
@@ -127,7 +130,7 @@ struct MobileSearchView: View {
                 .labelStyle(.iconOnly)
                 .buttonStyle(.glass)
                 .frame(width: 44, height: 44)
-                .disabled(!store.searchCanGoToPreviousPage)
+                .disabled(!store.searchCanGoToPreviousPage || searchDraft != store.searchKeyword)
 
                 Text("第 \(store.searchCurrentPage) 页")
                   .font(.subheadline.monospacedDigit())
@@ -140,7 +143,7 @@ struct MobileSearchView: View {
                 .labelStyle(.iconOnly)
                 .buttonStyle(.glass)
                 .frame(width: 44, height: 44)
-                .disabled(!store.searchCanGoToNextPage)
+                .disabled(!store.searchCanGoToNextPage || searchDraft != store.searchKeyword)
               }
             }
             Spacer()
@@ -152,10 +155,20 @@ struct MobileSearchView: View {
     }
     .listStyle(.plain)
     .mobileNavigationTitle("搜索")
-    .searchable(text: $store.searchKeyword, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索动漫或资源")
+    .searchable(text: $searchDraft, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索动漫或资源")
     .searchFocused($searchFocused)
     .onSubmit(of: .search) {
-      Task { await store.performSearch() }
+      submitSearch()
+    }
+    .onAppear {
+      guard !searchDraftInitialized else { return }
+      searchDraft = store.searchKeyword
+      searchDraftInitialized = true
+    }
+    .onChange(of: searchDraft) { _, _ in
+      if searchDraft != store.searchKeyword {
+        store.searchInputDidChange()
+      }
     }
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
@@ -181,7 +194,7 @@ struct MobileSearchView: View {
           Label("搜索选项", systemImage: "slider.horizontal.3")
         }
         Button {
-          Task { await store.performSearch() }
+          submitSearch()
         } label: {
           Group {
             if isSearching {
@@ -194,7 +207,7 @@ struct MobileSearchView: View {
           .frame(width: 18, height: 18)
         }
         .accessibilityLabel(isSearching ? "正在搜索" : "搜索")
-        .disabled(store.isLoading || store.searchKeyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .disabled(store.isLoading || searchDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }
     }
     .task(id: isActive) {
@@ -250,6 +263,13 @@ struct MobileSearchView: View {
 
   private var isSearching: Bool {
     store.isLoading && store.activeOperationLabel == "搜索资源"
+  }
+
+  private func submitSearch() {
+    if store.searchKeyword != searchDraft {
+      store.searchKeyword = searchDraft
+    }
+    Task { await store.performSearch() }
   }
 
   @ViewBuilder

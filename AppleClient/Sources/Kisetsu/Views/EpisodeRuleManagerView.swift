@@ -1416,7 +1416,7 @@ struct EpisodeRuleManagerView: View {
   }
 }
 
-private struct EpisodeTokenFlowLayout: Layout {
+struct EpisodeTokenFlowLayout: Layout {
   var spacing: CGFloat = 8
   var rowSpacing: CGFloat = 8
 

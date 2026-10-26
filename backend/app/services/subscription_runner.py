@@ -1268,7 +1268,7 @@ async def _refresh_subscription_once(
         f"抓取 {diagnostics.total_fetched} 条，匹配 {diagnostics.matched_count} 条，"
         f"字幕组过滤 {diagnostics.excluded_by_fansub} 条，包含词过滤 {diagnostics.excluded_by_include} 条，"
         f"排除词过滤 {diagnostics.excluded_by_exclude} 条，分辨率过滤 {diagnostics.excluded_by_resolution} 条，体积过滤 {diagnostics.excluded_by_size} 条，"
-        f"正则过滤 {diagnostics.excluded_by_regex} 条，集数过滤 {diagnostics.excluded_by_episode_filter} 条，"
+        f"集数过滤 {diagnostics.excluded_by_episode_filter} 条，"
         f"{detail_summary}"
         f"季度不匹配排除 {diagnostics.excluded_by_season_mismatch} 条，metadata 不匹配排除 {diagnostics.excluded_by_metadata_mismatch + diagnostics.excluded_by_bangumi_id_mismatch} 条，"
         f"重复跳过 {diagnostics.duplicate_count} 条{fulfillment_summary}{size_preference_summary}，等待下载器确认 {len(pending_results)} 条。"

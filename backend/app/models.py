@@ -71,7 +71,7 @@ class HealthResponse(BaseModel):
     ok: bool = True
     status: str = "ok"
     app: str = "Kisetsu"
-    version: str = "1.0.12"
+    version: str = "1.0.13"
     message: str = "后端连接正常"
     time: datetime
     port: int | None = None
@@ -792,6 +792,24 @@ class SubscriptionDownloadResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class EpisodeRuleLabeledExample(BaseModel):
+    title: str = Field(min_length=1, max_length=512)
+    expected_episode: int | None = Field(default=None, ge=1, le=999)
+    expected_end: int | None = Field(default=None, ge=1, le=999)
+    should_match: bool = True
+    marks: list[EpisodeRuleVisualMark] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_expected_result(self) -> EpisodeRuleLabeledExample:
+        if self.should_match and self.expected_episode is None:
+            raise ValueError("应匹配样例必须指定正确集数")
+        if not self.should_match and (self.expected_episode is not None or self.expected_end is not None or self.marks):
+            raise ValueError("不应匹配样例不能包含集数或标记")
+        if self.expected_end is not None and (self.expected_episode is None or self.expected_end <= self.expected_episode):
+            raise ValueError("合集结束集数必须大于开始集数")
+        return self
+
+
 class EpisodeParseRule(BaseModel):
     id: str
     name: str = Field(min_length=1)
@@ -803,12 +821,14 @@ class EpisodeParseRule(BaseModel):
     end_group: str = "end"
     final_group: str = "final"
     rule_type: Literal["builtin", "user"] = "user"
-    mode: Literal["visual", "regex"] = "regex"
+    mode: Literal["visual", "regex", "examples"] = "regex"
     sample_title: str | None = None
     example_title: str | None = None
     description: str | None = None
     visual_marks: list[EpisodeRuleVisualMark] = Field(default_factory=list)
     generated_pattern: str | None = None
+    examples: list[EpisodeRuleLabeledExample] = Field(default_factory=list)
+    generation_group_id: str | None = None
 
 
 class EpisodeRuleVisualMark(BaseModel):
@@ -859,6 +879,37 @@ class EpisodeRulePreviewResponse(BaseModel):
     marked_tokens: list[EpisodeRuleVisualMark] = Field(default_factory=list)
     positive_tests: list[str] = Field(default_factory=list)
     negative_tests: list[str] = Field(default_factory=list)
+
+
+class EpisodeRuleGenerateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    examples: list[EpisodeRuleLabeledExample] = Field(min_length=1, max_length=20)
+    use_ai: bool = False
+
+
+class EpisodeRuleExampleResult(BaseModel):
+    title: str
+    expected_episode: int | None = None
+    expected_end: int | None = None
+    actual_episode: int | None = None
+    actual_end: int | None = None
+    status: Literal["correct", "wrong", "missed", "false_positive"]
+    message: str
+
+
+class EpisodeRuleGeneratedCandidate(BaseModel):
+    profile: Literal["default", "lenient", "balanced", "strict"]
+    ok: bool
+    anchors: list[str] = Field(default_factory=list)
+    rules: list[EpisodeParseRule] = Field(default_factory=list)
+    results: list[EpisodeRuleExampleResult] = Field(default_factory=list)
+    message: str
+
+
+class EpisodeRuleGenerateResponse(BaseModel):
+    candidates: list[EpisodeRuleGeneratedCandidate] = Field(default_factory=list)
+    ai_configured: bool = False
+    message: str
 
 
 class EpisodeRuleSettingsResponse(BaseModel):

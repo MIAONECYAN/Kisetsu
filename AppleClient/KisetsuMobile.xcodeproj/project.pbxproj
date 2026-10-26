@@ -26,6 +26,7 @@
 		5919FF49DD8AC38B898CB5F0 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5917A8BDC96E96E6AAA1C70F /* AppStore.swift */; };
 		60D3F908C4E79F6096D6A7D5 /* MobileArchitectureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19049353C36C473CCC831860 /* MobileArchitectureTests.swift */; };
 		67DF1371B9FCA0B6C1C569D7 /* MobileEpisodeRuleManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB6032132DD677F499712E1 /* MobileEpisodeRuleManager.swift */; };
+		79A1F102CBD34479AE70C31A /* MobileSubscriptionEpisodeRuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A1F102CBD34479AE70C31B /* MobileSubscriptionEpisodeRuleView.swift */; };
 		7488F05F6C2F14C356C60541 /* MobilePosterImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C9867FDCFABCC456746FF0 /* MobilePosterImage.swift */; };
 		78858A4C9D831363FAD6A193 /* AppRelativeTime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9354D01BD1273A5DC0EA4C /* AppRelativeTime.swift */; };
 		7CECC9D0A5304091750871B1 /* MobileFileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD74321062F10E61FA1894BA /* MobileFileManagerView.swift */; };
@@ -83,6 +84,7 @@
 		4E60A4DEE4AB8D4FD11A823D /* SubscriptionSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSearch.swift; sourceTree = "<group>"; };
 		5917A8BDC96E96E6AAA1C70F /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		5BB6032132DD677F499712E1 /* MobileEpisodeRuleManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileEpisodeRuleManager.swift; sourceTree = "<group>"; };
+		79A1F102CBD34479AE70C31B /* MobileSubscriptionEpisodeRuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSubscriptionEpisodeRuleView.swift; sourceTree = "<group>"; };
 		6518035835212390FA35E357 /* FileBrowserState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserState.swift; sourceTree = "<group>"; };
 		66B1D13C7DE6AE5CAD62CBFB /* MobileMoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileMoreView.swift; sourceTree = "<group>"; };
 		6CF0955DCF79CAB546D869D3 /* KisetsuMobileTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = KisetsuMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -124,6 +126,7 @@
 				B09999ABD0CF7A407C5AA71C /* MobileBrushView.swift */,
 				2493400678049689AE46DA2D /* MobileDesign.swift */,
 				5BB6032132DD677F499712E1 /* MobileEpisodeRuleManager.swift */,
+				79A1F102CBD34479AE70C31B /* MobileSubscriptionEpisodeRuleView.swift */,
 				CD74321062F10E61FA1894BA /* MobileFileManagerView.swift */,
 				0049885716F73D27BA24E8CB /* MobileMikanProjectView.swift */,
 				66B1D13C7DE6AE5CAD62CBFB /* MobileMoreView.swift */,
@@ -370,6 +373,7 @@
 				3FC719024CECEFF42523016B /* MobileBrushView.swift in Sources */,
 				98412521F6566ED75153F617 /* MobileDesign.swift in Sources */,
 				67DF1371B9FCA0B6C1C569D7 /* MobileEpisodeRuleManager.swift in Sources */,
+				79A1F102CBD34479AE70C31A /* MobileSubscriptionEpisodeRuleView.swift in Sources */,
 				7CECC9D0A5304091750871B1 /* MobileFileManagerView.swift in Sources */,
 				C013A7B8BB1FD58D456B0E7E /* MobileMikanProjectView.swift in Sources */,
 				54C81BD312A825D55DB1F76C /* MobileMoreView.swift in Sources */,
@@ -477,7 +481,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -497,7 +501,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.12;
+				MARKETING_VERSION = 1.0.13;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -566,7 +570,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
@@ -580,7 +584,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.12;
+				MARKETING_VERSION = 1.0.13;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

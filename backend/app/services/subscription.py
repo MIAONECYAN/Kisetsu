@@ -451,17 +451,6 @@ def analyze_match(
         sample.reason = size_reason or "视频体积不符合订阅规则"
         return False, "excluded_by_size", sample
 
-    if subscription.regex_enabled and subscription.regex:
-        try:
-            texts = [value for _, value in search_result_text_fields(result)]
-            texts.append(combined_search_result_text(result))
-            if not any(re.search(subscription.regex, text, flags=re.I) for text in texts):
-                sample.reason = "正则表达式未匹配资源标题或副标题"
-                return False, "excluded_by_regex", sample
-        except re.error as exc:
-            sample.reason = f"正则表达式错误：{exc}"
-            return False, "excluded_by_regex", sample
-
     episode_start, episode_end = parsed_episode_range(parsed.episode_start or parsed.episode, parsed.episode_end)
     is_collection = is_collection_parsed(parsed)
     covers_whole_season = is_collection and parsed.is_batch and episode_start is None and episode_end is None
