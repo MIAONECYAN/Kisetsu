@@ -1,4 +1,26 @@
+import SafariServices
 import SwiftUI
+
+@MainActor
+final class MobileSafariWebsiteDataController: ObservableObject {
+  @Published private(set) var isClearing = false
+
+  private let clearOperation: @MainActor () async -> Void
+
+  init(clearOperation: @escaping @MainActor () async -> Void = {
+    await SFSafariViewController.DataStore.default.clearWebsiteData()
+  }) {
+    self.clearOperation = clearOperation
+  }
+
+  func clearWebsiteData() async -> Bool {
+    guard !isClearing else { return false }
+    isClearing = true
+    await clearOperation()
+    isClearing = false
+    return true
+  }
+}
 
 struct MobileSearchView: View {
   @EnvironmentObject private var store: AppStore
@@ -6,6 +28,9 @@ struct MobileSearchView: View {
   @State private var showingSites = false
   @State private var showingFilters = false
   @State private var showingSettings = false
+  @State private var showingClearWebsiteDataConfirmation = false
+  @State private var showingWebsiteDataCleared = false
+  @StateObject private var websiteData = MobileSafariWebsiteDataController()
   @AppStorage("searchBrowserMode") private var browserMode = MobileBrowserMode.inApp.rawValue
   @FocusState private var searchFocused: Bool
   @State private var searchDraft = ""
@@ -189,6 +214,11 @@ struct MobileSearchView: View {
               get: { MobileBrowserMode(storedValue: browserMode) == .external },
               set: { if $0 { browserMode = MobileBrowserMode.external.rawValue } }
             ))
+            Divider()
+            Button("清除网站数据", role: .destructive) {
+              showingClearWebsiteDataConfirmation = true
+            }
+            .disabled(websiteData.isClearing)
           }
         } label: {
           Label("搜索选项", systemImage: "slider.horizontal.3")
@@ -258,6 +288,23 @@ struct MobileSearchView: View {
     }) {
       MobileSubscriptionEditorView(smartChoice: smartSubscriptionChoice)
         .environmentObject(store)
+    }
+    .confirmationDialog("清除网站数据？", isPresented: $showingClearWebsiteDataConfirmation, titleVisibility: .visible) {
+      Button("清除网站数据", role: .destructive) {
+        Task {
+          if await websiteData.clearWebsiteData() {
+            showingWebsiteDataCleared = true
+          }
+        }
+      }
+      Button("取消", role: .cancel) {}
+    } message: {
+      Text("将清除 Kisetsu 应用内 Safari 视图的 Cookie 和缓存。搜索与 Mikan Project 中的网站可能需要重新登录；不会清除手机 Safari 的数据。")
+    }
+    .alert("网站数据已清除", isPresented: $showingWebsiteDataCleared) {
+      Button("好", role: .cancel) {}
+    } message: {
+      Text("Kisetsu 应用内 Safari 视图的网站数据已清除。")
     }
   }
 
