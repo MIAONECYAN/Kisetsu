@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.14",
-          "buildVersion": "15",
-          "date": "2026-10-29T15:15:13Z",
-          "localizedDescription": "改进内置网页浏览体验，并支持清除 Kisetsu 应用内 Safari 网站数据。",
+          "version": "1.0.15",
+          "buildVersion": "16",
+          "date": "2026-10-30T14:22:55Z",
+          "localizedDescription": "统一搜索与 Mikan Project 的浏览器菜单图标，并在 Mikan Project 增加清除应用内网站数据入口。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5952524,
+          "size": 5959269,
           "minOSVersion": "26.0"
         }
       ],

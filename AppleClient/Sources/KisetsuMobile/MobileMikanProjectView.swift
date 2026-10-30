@@ -19,6 +19,9 @@ struct MobileMikanProjectView: View {
   @State private var selection = MikanProjectSectionKind.monday
   @State private var lastAutoRefreshCheck = Date.distantPast
   @State private var isVisible = false
+  @State private var showingClearWebsiteDataConfirmation = false
+  @State private var showingWebsiteDataCleared = false
+  @ObservedObject private var websiteData = MobileSafariWebsiteDataController.shared
   @AppStorage("mikanProjectBrowserMode") private var browserMode = MikanProjectBrowserMode.inApp.rawValue
 
   private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
@@ -122,6 +125,11 @@ struct MobileMikanProjectView: View {
             )) {
               Label("外部浏览器", systemImage: "arrow.up.right.square")
             }
+            Divider()
+            Button("清除网站数据", systemImage: "trash", role: .destructive) {
+              showingClearWebsiteDataConfirmation = true
+            }
+            .disabled(websiteData.isClearing)
           }
         } label: {
           Label("更多选项", systemImage: "ellipsis")
@@ -157,6 +165,23 @@ struct MobileMikanProjectView: View {
             MobileDebugConfiguration.shouldLoadNetworkAtRuntime else { return }
       lastAutoRefreshCheck = Date()
       store.startMikanProjectSeasonLoad(silent: true)
+    }
+    .confirmationDialog("清除网站数据？", isPresented: $showingClearWebsiteDataConfirmation, titleVisibility: .visible) {
+      Button("清除网站数据", role: .destructive) {
+        Task {
+          if await websiteData.clearWebsiteData() {
+            showingWebsiteDataCleared = true
+          }
+        }
+      }
+      Button("取消", role: .cancel) {}
+    } message: {
+      Text("将清除 Kisetsu 应用内 Safari 视图的 Cookie 和缓存。搜索与 Mikan Project 中的网站可能需要重新登录；不会清除手机 Safari 的数据。")
+    }
+    .alert("网站数据已清除", isPresented: $showingWebsiteDataCleared) {
+      Button("好", role: .cancel) {}
+    } message: {
+      Text("Kisetsu 应用内 Safari 视图的网站数据已清除。")
     }
   }
 

@@ -3,6 +3,8 @@ import SwiftUI
 
 @MainActor
 final class MobileSafariWebsiteDataController: ObservableObject {
+  static let shared = MobileSafariWebsiteDataController()
+
   @Published private(set) var isClearing = false
 
   private let clearOperation: @MainActor () async -> Void
@@ -30,7 +32,7 @@ struct MobileSearchView: View {
   @State private var showingSettings = false
   @State private var showingClearWebsiteDataConfirmation = false
   @State private var showingWebsiteDataCleared = false
-  @StateObject private var websiteData = MobileSafariWebsiteDataController()
+  @ObservedObject private var websiteData = MobileSafariWebsiteDataController.shared
   @AppStorage("searchBrowserMode") private var browserMode = MobileBrowserMode.inApp.rawValue
   @FocusState private var searchFocused: Bool
   @State private var searchDraft = ""
@@ -206,16 +208,20 @@ struct MobileSearchView: View {
           }
           Divider()
           Menu("网页浏览器", systemImage: "safari") {
-            Toggle("内置 Safari 视图", isOn: Binding(
+            Toggle(isOn: Binding(
               get: { MobileBrowserMode(storedValue: browserMode) == .inApp },
               set: { if $0 { browserMode = MobileBrowserMode.inApp.rawValue } }
-            ))
-            Toggle("外部浏览器", isOn: Binding(
+            )) {
+              Label("内置 Safari 视图", systemImage: "safari")
+            }
+            Toggle(isOn: Binding(
               get: { MobileBrowserMode(storedValue: browserMode) == .external },
               set: { if $0 { browserMode = MobileBrowserMode.external.rawValue } }
-            ))
+            )) {
+              Label("外部浏览器", systemImage: "arrow.up.right.square")
+            }
             Divider()
-            Button("清除网站数据", role: .destructive) {
+            Button("清除网站数据", systemImage: "trash", role: .destructive) {
               showingClearWebsiteDataConfirmation = true
             }
             .disabled(websiteData.isClearing)
