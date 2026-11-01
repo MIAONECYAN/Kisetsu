@@ -59,6 +59,10 @@ struct KisetsuApp: App {
       appStore.sites = DesktopDebugFixtureData.sites
       appStore.sitesLoaded = true
       appStore.subscriptions = DesktopDebugFixtureData.subscriptions
+      if let subscription = appStore.subscriptions.first,
+         let detail = SubscriptionEpisodeDisclosureFixture.detail(for: subscription) {
+        appStore.selectedSubscriptionDetail = detail
+      }
       appStore.mikanProjectSeason = DesktopDebugFixtureData.mikanSeason
       appStore.mikanProjectResources[DesktopDebugFixtureData.mikanAnime.bangumiId] =
         MikanProjectResourcesResponse(anime: DesktopDebugFixtureData.mikanAnime, groups: [], warnings: [])

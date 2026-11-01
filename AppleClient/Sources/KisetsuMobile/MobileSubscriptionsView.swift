@@ -582,6 +582,7 @@ struct MobileSubscriptionDetailView: View {
   @State private var showingEditor = false
   @State private var showingDeleteConfirmation = false
   @State private var pendingConfirmation: MobileSubscriptionConfirmation?
+  @State private var showSkippedEpisodes = false
 
   var body: some View {
     List {
@@ -594,17 +595,44 @@ struct MobileSubscriptionDetailView: View {
           MobileSubscriptionDetailHero(detail: detail)
         }
 
-        Section("剧集") {
+        Section {
           if detail.episodeStatuses.isEmpty {
             Text("尚未形成剧集状态").foregroundStyle(.secondary)
           } else {
-            ForEach(detail.episodeStatuses) { episode in
-              MobileSubscriptionEpisodeRow(
-                episode: episode,
-                detail: detail,
-                posterPalette: posterPalette,
-                confirm: { pendingConfirmation = $0 }
-              )
+            ForEach(episodeSeasons(detail), id: \.number) { season in
+              HStack {
+                Label(String(format: "Season %02d", season.number), systemImage: "rectangle.stack")
+                Spacer()
+                Text("\(season.total) 集")
+              }
+              .font(.caption.weight(.medium))
+              .foregroundStyle(.secondary)
+              ForEach(season.episodes) { episode in
+                MobileSubscriptionEpisodeRow(
+                  episode: episode,
+                  detail: detail,
+                  posterPalette: posterPalette,
+                  confirm: { pendingConfirmation = $0 }
+                )
+              }
+            }
+          }
+        } header: {
+          HStack {
+            Text("剧集")
+            Spacer()
+            if detail.episodeStatuses.contains(where: SubscriptionEpisodeScopePresentation.isExcluded) {
+              Button {
+                showSkippedEpisodes.toggle()
+              } label: {
+                Label(showSkippedEpisodes ? "隐藏已跳过" : "显示已跳过",
+                      systemImage: showSkippedEpisodes ? "eye.slash" : "eye")
+                  .frame(minHeight: 44)
+              }
+              .buttonStyle(.plain)
+              .font(.caption)
+              .textCase(nil)
+              .accessibilityValue(showSkippedEpisodes ? "已跳过剧集可见" : "已跳过剧集已隐藏")
             }
           }
         }
@@ -721,6 +749,7 @@ struct MobileSubscriptionDetailView: View {
       }
     }
     .task(id: subscription.id) {
+      showSkippedEpisodes = false
       guard !MobileDebugConfiguration.usesFixturesAtRuntime else { return }
       await store.loadSubscriptionDetail(for: subscription)
     }
@@ -758,6 +787,12 @@ struct MobileSubscriptionDetailView: View {
   private var currentDetail: SubscriptionDetail? {
     guard store.selectedSubscriptionDetail?.subscription.id == subscription.id else { return nil }
     return store.selectedSubscriptionDetail
+  }
+
+  private func episodeSeasons(_ detail: SubscriptionDetail) -> [(number: Int, episodes: [SubscriptionLogicalEpisodeStatus], total: Int)] {
+    SubscriptionEpisodeScopePresentation.seasonGroups(
+      detail.episodeStatuses, showSkipped: showSkippedEpisodes
+    )
   }
 
   private func perform(_ confirmation: MobileSubscriptionConfirmation) {

@@ -4,8 +4,8 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="Kisetsu"
 BUNDLE_ID="com.kisetsu.app"
-APP_VERSION="1.0.15"
-BUILD_NUMBER="16"
+APP_VERSION="1.0.16"
+BUILD_NUMBER="17"
 MIN_SYSTEM_VERSION="15.0"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

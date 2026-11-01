@@ -142,6 +142,12 @@ struct SubscriptionsView: View {
       RefreshLogSheet()
     }
     .onAppear {
+      #if DEBUG
+      if DesktopDebugConfiguration.usesPlaylistFixtures,
+         ProcessInfo.processInfo.environment["KISETSU_EPISODE_DISCLOSURE_FIXTURE"] != nil {
+        showingDetail = true
+      }
+      #endif
       Task {
         await store.loadSchedulerStatus(silent: true)
         await store.loadSubscriptionGroups()
@@ -3365,11 +3371,12 @@ private struct MetadataHierarchyView: View {
   var organizeSelected: ([Int]) -> Void
   @State private var selectedEpisodes: Set<Int> = []
   @State private var confirmOrganizeSelected = false
+  @State private var showSkippedEpisodes = false
 
-  private var seasons: [(number: Int, episodes: [SubscriptionLogicalEpisodeStatus])] {
-    Dictionary(grouping: detail.episodeStatuses, by: \.seasonNumber)
-      .map { (number: $0.key, episodes: $0.value.sorted { $0.episodeNumber < $1.episodeNumber }) }
-      .sorted { $0.number < $1.number }
+  private var seasons: [(number: Int, episodes: [SubscriptionLogicalEpisodeStatus], total: Int)] {
+    SubscriptionEpisodeScopePresentation.seasonGroups(
+      detail.episodeStatuses, showSkipped: showSkippedEpisodes
+    )
   }
 
   private var selectableEpisodeNumbers: Set<Int> {
@@ -3386,6 +3393,18 @@ private struct MetadataHierarchyView: View {
         Text("剧集状态")
           .font(.caption.weight(.semibold))
         Spacer()
+        if skippedEpisodeCount > 0 {
+          Button {
+            showSkippedEpisodes.toggle()
+          } label: {
+            Label(showSkippedEpisodes ? "隐藏已跳过" : "显示已跳过",
+                  systemImage: showSkippedEpisodes ? "eye.slash" : "eye")
+          }
+          .buttonStyle(.borderless)
+          .font(.caption)
+          .help("\(skippedEpisodeCount) 集已跳过")
+          .accessibilityValue(showSkippedEpisodes ? "已跳过剧集可见" : "已跳过剧集已隐藏")
+        }
         Button {
           confirmOrganizeSelected = true
         } label: {
@@ -3398,7 +3417,7 @@ private struct MetadataHierarchyView: View {
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
 
-      if seasons.isEmpty {
+      if detail.episodeStatuses.isEmpty {
         ContentUnavailableView(
           "暂无剧集状态",
           systemImage: "rectangle.stack",
@@ -3406,11 +3425,11 @@ private struct MetadataHierarchyView: View {
         )
         .frame(maxWidth: .infinity, minHeight: 160)
       } else {
-        ForEach(seasons.indices, id: \.self) { index in
-          let season = seasons[index]
+        ForEach(seasons, id: \.number) { season in
           MetadataSeasonGroup(
             seasonNumber: season.number,
             episodes: season.episodes,
+            totalEpisodeCount: season.total,
             download: download,
             preview: preview,
             deleteRecord: deleteRecord,
@@ -3446,6 +3465,13 @@ private struct MetadataHierarchyView: View {
     .onChange(of: selectableEpisodeNumbers) { _, validEpisodes in
       selectedEpisodes.formIntersection(validEpisodes)
     }
+    .onChange(of: detail.subscription.id) { _, _ in
+      showSkippedEpisodes = false
+    }
+  }
+
+  private var skippedEpisodeCount: Int {
+    detail.episodeStatuses.filter(SubscriptionEpisodeScopePresentation.isExcluded).count
   }
 
   private var statusSummary: String {
@@ -3459,6 +3485,7 @@ private struct MetadataHierarchyView: View {
 private struct MetadataSeasonGroup: View {
   var seasonNumber: Int
   var episodes: [SubscriptionLogicalEpisodeStatus]
+  var totalEpisodeCount: Int
   var download: (SubscriptionEpisodeResource, Bool) -> Void
   var preview: (SubscriptionEpisodeResource) -> Void
   var deleteRecord: (SubscriptionEpisodeResource) -> Void
@@ -3509,7 +3536,7 @@ private struct MetadataSeasonGroup: View {
         Text(String(format: "Season %02d", seasonNumber))
           .font(.caption.weight(.medium))
         Spacer()
-        Text("\(episodes.count) 集")
+        Text("\(totalEpisodeCount) 集")
           .font(.caption2)
           .foregroundStyle(.secondary)
       }

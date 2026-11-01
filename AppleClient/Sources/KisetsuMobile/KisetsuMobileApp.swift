@@ -686,6 +686,9 @@ enum MobileDebugFixtureData {
     detail.subscription.episodeParseRules = customEpisodeRules
     detail.subscription.includeKeywords = ["(简体, 1080p)", "WEB-DL"]
     detail.subscription.excludeKeywords = ["(先行, CAM)"]
+    if let disclosure = SubscriptionEpisodeDisclosureFixture.detail(for: detail.subscription) {
+      return disclosure
+    }
     return detail
   }()
 

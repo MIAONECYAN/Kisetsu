@@ -2351,7 +2351,58 @@ struct SubscriptionLogicalEpisodeStatus: Codable, Identifiable, Hashable {
   var lastMatchedAt: String?
 }
 
+#if DEBUG
+enum SubscriptionEpisodeDisclosureFixture {
+  static func detail(for subscription: Subscription) -> SubscriptionDetail? {
+    guard let scenario = ProcessInfo.processInfo.environment["KISETSU_EPISODE_DISCLOSURE_FIXTURE"],
+          ["mixed", "none", "all"].contains(scenario),
+          let data = try? JSONEncoder().encode(subscription),
+          let subscriptionJSON = try? JSONSerialization.jsonObject(with: data) else { return nil }
+    let episodes: [[String: Any]] = (1...6).map { number in
+      let skipped = scenario == "all" || (scenario == "mixed" && [1, 3].contains(number))
+      return [
+        "seasonNumber": number > 4 ? 2 : 1, "episodeNumber": number,
+        "displayTitle": "第 \(number) 集", "metadataSource": "fixture",
+        "matchedResources": [], "downloadStatus": skipped ? "已跳过" : "等待订阅刷新",
+        "organizeStatus": "未整理", "autoOrganizeStatus": "未开启",
+        "excludedByEpisodeStart": skipped, "organizeAvailable": false, "selected": false,
+      ]
+    }
+    let payload: [String: Any] = [
+      "subscription": subscriptionJSON, "matches": [], "history": [], "refreshHistory": [],
+      "metadataBindings": [], "metadataHierarchy": [], "plexMappings": [], "episodes": [],
+      "episodeStatuses": episodes, "unmatchedResources": [], "autoOrganizeStatus": "未开启",
+      "matchedCount": 0, "queuedCount": 0, "skippedCount": 0, "errorCount": 0,
+    ]
+    guard let encoded = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+    return try? JSONDecoder().decode(SubscriptionDetail.self, from: encoded)
+  }
+}
+#endif
+
 enum SubscriptionEpisodeScopePresentation {
+  static func seasonGroups(
+    _ episodes: [SubscriptionLogicalEpisodeStatus],
+    showSkipped: Bool
+  ) -> [(number: Int, episodes: [SubscriptionLogicalEpisodeStatus], total: Int)] {
+    Dictionary(grouping: episodes, by: \.seasonNumber)
+      .map { number, episodes in
+        (number: number,
+         episodes: visibleEpisodes(episodes, showSkipped: showSkipped)
+           .sorted { $0.episodeNumber < $1.episodeNumber },
+         total: episodes.count)
+      }
+      .filter { !$0.episodes.isEmpty }
+      .sorted { $0.number < $1.number }
+  }
+
+  static func visibleEpisodes(
+    _ episodes: [SubscriptionLogicalEpisodeStatus],
+    showSkipped: Bool
+  ) -> [SubscriptionLogicalEpisodeStatus] {
+    showSkipped ? episodes : episodes.filter { !isExcluded($0) }
+  }
+
   static func isExcluded(_ episode: SubscriptionLogicalEpisodeStatus) -> Bool {
     episode.excludedByEpisodeStart == true
   }

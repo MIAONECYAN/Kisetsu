@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.15",
-          "buildVersion": "16",
-          "date": "2026-10-30T14:22:55Z",
-          "localizedDescription": "统一搜索与 Mikan Project 的浏览器菜单图标，并在 Mikan Project 增加清除应用内网站数据入口。",
+          "version": "1.0.16",
+          "buildVersion": "17",
+          "date": "2026-11-01T14:21:57Z",
+          "localizedDescription": "订阅剧集状态支持显示或隐藏已跳过剧集，默认隐藏；iPhone 订阅详情新增 Season 分组与季度集数。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5959269,
+          "size": 5975323,
           "minOSVersion": "26.0"
         }
       ],
