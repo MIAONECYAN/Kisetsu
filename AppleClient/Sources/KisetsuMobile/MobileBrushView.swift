@@ -137,17 +137,17 @@ struct MobileBrushView: View {
         .disabled(!hasUnsavedRules || store.isLoading)
       } else {
         Menu("刷流操作", systemImage: "ellipsis.circle") {
-          Button("检查任务", systemImage: "checkmark.arrow.trianglehead.counterclockwise") {
+          MobileMenuButton("检查任务", systemImage: "checkmark.arrow.trianglehead.counterclockwise") {
             showingCheckConfirmation = true
           }
-          Button("立即刷流", systemImage: "bolt.fill") { showingRunConfirmation = true }
+          MobileMenuButton("立即刷流", systemImage: "bolt") { showingRunConfirmation = true }
             .disabled(store.brushStatus?.enabled != true)
           Divider()
-          Button("运行记录", systemImage: "clock.arrow.circlepath") {
+          MobileMenuButton("运行记录", systemImage: "clock.arrow.circlepath") {
             showingRunHistory = true
             Task { await store.refreshBrushRuns() }
           }
-          Button("清理已结束记录", systemImage: "eraser", role: .destructive) {
+          MobileMenuButton("清理已结束记录", systemImage: "eraser", role: .destructive) {
             showingClearConfirmation = true
           }
         }
@@ -266,13 +266,13 @@ struct MobileBrushView: View {
                 }
               }
               .contextMenu {
-                Button("恢复", systemImage: "play.fill") { Task { await store.manageBrushTask(task, action: "resume") } }
-                Button("暂停", systemImage: "pause.fill") { Task { await store.manageBrushTask(task, action: "pause") } }
+                MobileMenuButton("恢复", systemImage: "play") { Task { await store.manageBrushTask(task, action: "resume") } }
+                MobileMenuButton("暂停", systemImage: "pause") { Task { await store.manageBrushTask(task, action: "pause") } }
                 Divider()
-                Button("删除任务", systemImage: "trash", role: .destructive) {
+                MobileMenuButton("删除任务", systemImage: "trash", role: .destructive) {
                   pendingTaskAction = BrushTaskAction(task: task, action: "delete", deletesFiles: false)
                 }
-                Button("删除任务和文件", systemImage: "trash.slash", role: .destructive) {
+                MobileMenuButton("删除任务和文件", systemImage: "trash.slash", role: .destructive) {
                   pendingTaskAction = BrushTaskAction(task: task, action: "delete_files", deletesFiles: true)
                 }
               }

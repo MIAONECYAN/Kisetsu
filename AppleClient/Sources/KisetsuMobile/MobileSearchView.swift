@@ -200,11 +200,15 @@ struct MobileSearchView: View {
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         Menu {
-          Button("搜索站点", systemImage: "network") {
+          Button {
             showingSites = true
+          } label: {
+            MobileMenuLabel(title: "搜索站点", systemImage: "network")
           }
-          Button("搜索设置", systemImage: "gearshape") {
+          Button {
             showingSettings = true
+          } label: {
+            MobileMenuLabel(title: "搜索设置", systemImage: "gearshape")
           }
           Divider()
           Menu("网页浏览器", systemImage: "safari") {
@@ -212,16 +216,16 @@ struct MobileSearchView: View {
               get: { MobileBrowserMode(storedValue: browserMode) == .inApp },
               set: { if $0 { browserMode = MobileBrowserMode.inApp.rawValue } }
             )) {
-              Label("内置 Safari 视图", systemImage: "safari")
+              MobileMenuLabel(title: "内置 Safari 视图", systemImage: "safari")
             }
             Toggle(isOn: Binding(
               get: { MobileBrowserMode(storedValue: browserMode) == .external },
               set: { if $0 { browserMode = MobileBrowserMode.external.rawValue } }
             )) {
-              Label("外部浏览器", systemImage: "arrow.up.right.square")
+              MobileMenuLabel(title: "外部浏览器", systemImage: "arrow.up.right.square")
             }
             Divider()
-            Button("清除网站数据", systemImage: "trash", role: .destructive) {
+            MobileMenuButton("清除网站数据", systemImage: "trash", role: .destructive) {
               showingClearWebsiteDataConfirmation = true
             }
             .disabled(websiteData.isClearing)
@@ -327,13 +331,13 @@ struct MobileSearchView: View {
 
   @ViewBuilder
   private func resultActions(_ result: SearchResult) -> some View {
-    Button("查看详情", systemImage: "info.circle") { selectedResult = result }
-    Button("识别番剧", systemImage: "sparkles") { identify(result) }
-    Button("智能订阅", systemImage: MobileMikanPresentation.smartSubscriptionSymbol) { smartSubscribe(result) }
+    MobileMenuButton("查看详情", systemImage: "info.circle") { selectedResult = result }
+    MobileMenuButton("识别番剧", systemImage: "sparkles") { identify(result) }
+    MobileMenuButton("智能订阅", systemImage: MobileMikanPresentation.smartSubscriptionSymbol) { smartSubscribe(result) }
     if MobileSearchDownloadPresentation.isDownloadable(result) {
-      Button("添加到下载", systemImage: "arrow.down.circle") { presentDownload(result) }
+      MobileMenuButton("添加到下载", systemImage: "arrow.down.circle") { presentDownload(result) }
     } else {
-      Button("缺少下载链接", systemImage: "exclamationmark.triangle") {}
+      MobileMenuButton("缺少下载链接", systemImage: "exclamationmark.triangle") {}
         .disabled(true)
     }
   }

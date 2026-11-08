@@ -392,14 +392,14 @@ struct MobileOrganizeSettingsView: View {
               if target.isDefault { MobileTag(text: "默认", systemImage: "checkmark.circle", tint: .green) }
               Spacer()
               Menu("目标操作", systemImage: "ellipsis.circle") {
-                Button("编辑", systemImage: "pencil") {
+                MobileMenuButton("编辑", systemImage: "pencil") {
                   store.editOrganizeTarget(target)
                   showingTargetEditor = true
                 }
-                Button("检查路径", systemImage: "checkmark.seal") { Task { await store.validateOrganizeTarget(target) } }
-                Button("设为默认", systemImage: "star") { Task { await store.setDefaultOrganizeTarget(target) } }
+                MobileMenuButton("检查路径", systemImage: "checkmark.seal") { Task { await store.validateOrganizeTarget(target) } }
+                MobileMenuButton("设为默认", systemImage: "star") { Task { await store.setDefaultOrganizeTarget(target) } }
                   .disabled(target.isDefault)
-                Button("删除", systemImage: "trash", role: .destructive) { targetToDelete = target }
+                MobileMenuButton("删除", systemImage: "trash", role: .destructive) { targetToDelete = target }
               }
             }
             Text(target.path).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(2)

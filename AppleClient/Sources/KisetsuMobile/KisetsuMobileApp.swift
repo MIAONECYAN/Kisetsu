@@ -153,7 +153,8 @@ struct KisetsuMobileApp: App {
         let fixtureLatencyMS = min(max(Int(environment["KISETSU_MOBILE_FIXTURE_LATENCY_MS"] ?? "") ?? 400, 0), 5_000)
         appStore.fixtureClient = MobileAutoRefreshFixture(
           latency: .milliseconds(fixtureLatencyMS),
-          failStart: environment["KISETSU_MOBILE_AUTO_REFRESH_FAILURE"] == "1"
+          failStart: environment["KISETSU_MOBILE_AUTO_REFRESH_FAILURE"] == "1",
+          detailOutcome: environment["KISETSU_MOBILE_FIXTURE_DETAIL_LOAD"]
         ).client()
       }
       defaults.set("http://127.0.0.1:8000", forKey: "backendURL")
@@ -212,6 +213,9 @@ struct KisetsuMobileApp: App {
     WindowGroup {
       MobileRootView()
         .environmentObject(store)
+        #if DEBUG
+        .preferredColorScheme(MobileDebugConfiguration.fixtureColorScheme(environment: ProcessInfo.processInfo.environment))
+        #endif
     }
   }
 }
@@ -259,6 +263,19 @@ enum MobileDebugConfiguration {
 
   static var usesFixturesAtRuntime: Bool {
     usesFixtures(environment: ProcessInfo.processInfo.environment)
+  }
+
+  static func fixtureColorScheme(environment: [String: String]) -> ColorScheme? {
+    guard usesFixtures(environment: environment) else { return nil }
+    switch environment["KISETSU_MOBILE_FIXTURE_COLOR_SCHEME"] {
+    case "light": return .light
+    case "dark": return .dark
+    default: return nil
+    }
+  }
+
+  static func shouldLoadSubscriptionDetail(environment: [String: String]) -> Bool {
+    !usesFixtures(environment: environment) || environment["KISETSU_MOBILE_FIXTURE_DETAIL_LOAD"] != nil
   }
 
   enum SearchDownloadOutcome: String {

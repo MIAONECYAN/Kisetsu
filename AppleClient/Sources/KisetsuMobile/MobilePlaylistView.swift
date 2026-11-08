@@ -20,6 +20,14 @@ enum MobilePlaylistMatchFilter: String, CaseIterable, Identifiable {
     case .unmatched: "未配对"
     }
   }
+
+  var systemImage: String {
+    switch self {
+    case .all: "square.grid.2x2"
+    case .matched: "link"
+    case .unmatched: "link.badge.plus"
+    }
+  }
 }
 
 @MainActor
@@ -338,17 +346,17 @@ struct MobilePlaylistView: View {
             Section("显示范围") {
               Picker("配对状态", selection: $model.matchFilter) {
                 ForEach(MobilePlaylistMatchFilter.allCases) { filter in
-                  Text(filter.title).tag(filter)
+                  MobileMenuLabel(title: filter.title, systemImage: filter.systemImage).tag(filter)
                 }
               }
             }
             Section("清单操作") {
-              Button(
+              MobileMenuButton(
                 model.areAllVisibleSelected ? "取消全选当前结果" : "全选当前结果",
                 systemImage: "checkmark.circle"
               ) { model.selectAllVisible() }
                 .disabled(model.selectableVisibleItems.isEmpty || model.isLoading)
-              Button("创建清单", systemImage: "rectangle.stack.badge.plus") {
+              MobileMenuButton("创建清单", systemImage: "rectangle.stack.badge.plus") {
                 model.prepareCachedSelections()
                 showingSelection = true
               }
@@ -573,7 +581,7 @@ private struct MobilePlaylistAnimeRow: View {
               if let pairing = item.pairing, !pairing.reason.isEmpty {
                 Section("匹配依据") { Text(pairing.reason) }
               }
-              Button("取消配对", systemImage: "link.badge.minus", role: .destructive, action: unpair)
+              MobileMenuButton("取消配对", systemImage: "link.badge.minus", role: .destructive, action: unpair)
             } label: {
               actionSymbol("ellipsis")
             }
@@ -587,7 +595,7 @@ private struct MobilePlaylistAnimeRow: View {
             Menu {
               ForEach(group.links) { link in
                 Link(destination: link.url) {
-                  Label(link.title, systemImage: "arrow.up.right")
+                  MobileMenuLabel(title: link.title, systemImage: "arrow.up.right")
                 }
               }
             } label: {

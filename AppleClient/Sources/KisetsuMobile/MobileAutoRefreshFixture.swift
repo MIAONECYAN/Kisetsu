@@ -8,12 +8,14 @@ actor MobileAutoRefreshFixture {
   private var failurePath: String?
   private var failureAfterWrite = false
   private var latency: Duration
+  private let detailOutcome: String?
   private var mikanSettings = MikanProjectSettings()
 
-  init(running: Bool = false, seconds: Int = 1800, latency: Duration = .zero, failStart: Bool = false) {
+  init(running: Bool = false, seconds: Int = 1800, latency: Duration = .zero, failStart: Bool = false, detailOutcome: String? = nil) {
     self.running = running
     self.seconds = seconds
     self.latency = latency
+    self.detailOutcome = detailOutcome
     failurePath = failStart ? "/api/automation/start" : nil
   }
 
@@ -40,6 +42,15 @@ actor MobileAutoRefreshFixture {
     if failing { failurePath = nil }
     if latency > .zero { try await Task.sleep(for: latency) }
     if failing && !afterWrite { throw URLError(.timedOut) }
+    if let detailOutcome, path.hasPrefix("/api/subscriptions/"), request.httpMethod == "GET" {
+      guard detailOutcome != "failed" else { throw URLError(.timedOut) }
+      guard let detail = MobileDebugFixtureData.subscriptionDetail,
+            path == "/api/subscriptions/\(detail.subscription.id)",
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+        throw URLError(.unsupportedURL)
+      }
+      return (try JSONEncoder().encode(detail), response)
+    }
     if path == "/api/mikan-project/settings" {
       if request.httpMethod == "PUT" {
         let decoder = JSONDecoder()

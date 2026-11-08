@@ -98,23 +98,23 @@ struct MobileTasksView: View {
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         Menu("任务操作", systemImage: "ellipsis.circle") {
-          Button("清空下载历史", systemImage: "eraser", role: .destructive) {
+          MobileMenuButton("清空下载历史", systemImage: "eraser", role: .destructive) {
             pendingClear = .historyOnly
           }
-          Button("清空历史并移除任务", systemImage: "trash", role: .destructive) {
+          MobileMenuButton("清空历史并移除任务", systemImage: "trash", role: .destructive) {
             pendingClear = .historyAndTasks
           }
-          Button("清空历史、任务和文件", systemImage: "trash.slash", role: .destructive) {
+          MobileMenuButton("清空历史、任务和文件", systemImage: "trash.slash", role: .destructive) {
             pendingClear = .historyTasksAndFiles
           }
           Divider()
-          Button("清空全部状态历史", systemImage: "arrow.counterclockwise", role: .destructive) {
+          MobileMenuButton("清空全部状态历史", systemImage: "arrow.counterclockwise", role: .destructive) {
             pendingClear = .all
           }
-          Button("清空整理记录", systemImage: "folder.badge.minus", role: .destructive) {
+          MobileMenuButton("清空整理记录", systemImage: "folder.badge.minus", role: .destructive) {
             showingClearOrganizeConfirmation = true
           }
-          Button("清除失败任务", systemImage: "trash", role: .destructive) {
+          MobileMenuButton("清除失败任务", systemImage: "trash", role: .destructive) {
             showingDeleteFailedConfirmation = true
           }
           .disabled(store.organizeFailedCount == 0)
@@ -800,7 +800,7 @@ private struct MobileHistoryRow: View {
           .accessibilityHint(item.organizeBlockReason ?? "识别番剧信息并生成整理预览")
           Spacer(minLength: 0)
           Menu {
-            Button("仅删除记录", systemImage: "xmark.bin", role: .destructive, action: deleteRecord)
+            MobileMenuButton("仅删除记录", systemImage: "xmark.bin", role: .destructive, action: deleteRecord)
           } label: {
             Image(systemName: "ellipsis")
               .font(.system(size: MobileTaskActionPresentation.symbolSize, weight: .semibold))

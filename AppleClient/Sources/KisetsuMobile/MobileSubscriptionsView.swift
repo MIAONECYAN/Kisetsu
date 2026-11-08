@@ -104,8 +104,8 @@ struct MobileSubscriptionsView: View {
             Button {
               store.subscriptionListFilter = store.subscriptionListFilter == .completed ? .all : .completed
             } label: {
-              Label(
-                "订阅完成",
+              MobileMenuLabel(
+                title: "订阅完成",
                 systemImage: store.subscriptionListFilter == .completed ? "checkmark" : "circle"
               )
             }
@@ -115,21 +115,21 @@ struct MobileSubscriptionsView: View {
             Button {
               store.selectedSubscriptionGroupID = nil
             } label: {
-              Label("全部分组", systemImage: store.selectedSubscriptionGroupID == nil ? "checkmark.circle.fill" : "circle")
+              MobileMenuLabel(title: "全部分组", systemImage: store.selectedSubscriptionGroupID == nil ? "checkmark.circle" : "circle")
             }
             ForEach(store.subscriptionGroups) { group in
               Button {
                 store.selectedSubscriptionGroupID = group.id
               } label: {
-                Label(group.name, systemImage: store.selectedSubscriptionGroupID == group.id ? "checkmark.circle.fill" : "circle")
+                MobileMenuLabel(title: group.name, systemImage: store.selectedSubscriptionGroupID == group.id ? "checkmark.circle" : "circle")
               }
             }
           }
           Section {
-            Button("分组设置", systemImage: "folder.badge.gearshape") {
+            MobileMenuButton("分组设置", systemImage: "folder.badge.gearshape") {
               showingGroupSettings = true
             }
-            Button("自动刷新", systemImage: "clock.arrow.circlepath") {
+            MobileMenuButton("自动刷新", systemImage: "clock.arrow.circlepath") {
               showingAutoRefresh = true
             }
           }
@@ -678,13 +678,13 @@ struct MobileSubscriptionDetailView: View {
                 }
               }
               .contextMenu {
-                Button("提交下载", systemImage: "arrow.down.circle") {
+                MobileMenuButton("提交下载", systemImage: "arrow.down.circle") {
                   pendingConfirmation = .download(match)
                 }
-                Button("生成整理预览", systemImage: "wand.and.stars") {
+                MobileMenuButton("生成整理预览", systemImage: "wand.and.stars") {
                   Task { await store.previewMatch(match) }
                 }
-                Button("识别番剧", systemImage: "sparkles.tv") {
+                MobileMenuButton("识别番剧", systemImage: "sparkles.tv") {
                   Task { await store.matchMetadata(for: match) }
                 }
               }
@@ -707,36 +707,36 @@ struct MobileSubscriptionDetailView: View {
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         Menu("订阅操作", systemImage: "ellipsis.circle") {
-          Button("编辑", systemImage: "pencil") {
+          MobileMenuButton("编辑", systemImage: "pencil") {
             store.editSubscription(currentDetail?.subscription ?? subscription)
             showingEditor = true
           }
-          Button("重新识别", systemImage: "sparkles") {
+          MobileMenuButton("重新识别", systemImage: "sparkles") {
             store.beginMobileSubscriptionMetadataReview()
           }
           Divider()
           Menu("清理当前订阅", systemImage: "eraser") {
-            Button("清除识别结果", systemImage: "sparkles.rectangle.stack", role: .destructive) {
+            MobileMenuButton("清除识别结果", systemImage: "sparkles.rectangle.stack", role: .destructive) {
               pendingConfirmation = .clearRecognition(currentDetail?.subscription ?? subscription)
             }
-            Button("清空匹配历史", systemImage: "tray.and.arrow.down", role: .destructive) {
+            MobileMenuButton("清空匹配历史", systemImage: "tray.and.arrow.down", role: .destructive) {
               pendingConfirmation = .clearMatches(currentDetail?.subscription ?? subscription)
             }
-            Button("清空整理记录", systemImage: "folder.badge.minus", role: .destructive) {
+            MobileMenuButton("清空整理记录", systemImage: "folder.badge.minus", role: .destructive) {
               pendingConfirmation = .clearOrganize(currentDetail?.subscription ?? subscription)
             }
-            Button("清空刷新历史", systemImage: "clock.badge.xmark", role: .destructive) {
+            MobileMenuButton("清空刷新历史", systemImage: "clock.badge.xmark", role: .destructive) {
               pendingConfirmation = .clearHistory(currentDetail?.subscription ?? subscription, scope: "refresh")
             }
-            Button("清空下载历史", systemImage: "xmark.bin", role: .destructive) {
+            MobileMenuButton("清空下载历史", systemImage: "xmark.bin", role: .destructive) {
               pendingConfirmation = .clearHistory(currentDetail?.subscription ?? subscription, scope: "download")
             }
-            Button("重置全部状态", systemImage: "arrow.counterclockwise", role: .destructive) {
+            MobileMenuButton("重置全部状态", systemImage: "arrow.counterclockwise", role: .destructive) {
               pendingConfirmation = .resetSubscription(currentDetail?.subscription ?? subscription)
             }
           }
           Divider()
-          Button("删除订阅", systemImage: "trash", role: .destructive) {
+          MobileMenuButton("删除订阅", systemImage: "trash", role: .destructive) {
             showingDeleteConfirmation = true
           }
         }
@@ -750,7 +750,7 @@ struct MobileSubscriptionDetailView: View {
     }
     .task(id: subscription.id) {
       showSkippedEpisodes = false
-      guard !MobileDebugConfiguration.usesFixturesAtRuntime else { return }
+      guard MobileDebugConfiguration.shouldLoadSubscriptionDetail(environment: ProcessInfo.processInfo.environment) else { return }
       await store.loadSubscriptionDetail(for: subscription)
     }
     .refreshable {
@@ -1045,18 +1045,18 @@ private struct MobileSubscriptionResourceRow: View {
 
           Menu {
             if let history {
-              Button("删除下载任务", systemImage: "trash", role: .destructive) {
+              MobileMenuButton("删除下载任务", systemImage: "trash", role: .destructive) {
                 confirm(.deleteTask(history))
               }
-              Button("删除下载记录", systemImage: "xmark.bin", role: .destructive) {
+              MobileMenuButton("删除下载记录", systemImage: "xmark.bin", role: .destructive) {
                 confirm(.deleteHistory(history))
               }
             }
             if let detail = store.selectedSubscriptionDetail {
-              Button("删除整理记录", systemImage: "folder.badge.minus", role: .destructive) {
+              MobileMenuButton("删除整理记录", systemImage: "folder.badge.minus", role: .destructive) {
                 confirm(.deleteOrganize(subscriptionID: detail.subscription.id, matchID: resource.matchId))
               }
-              Button("重置本资源状态", systemImage: "arrow.counterclockwise", role: .destructive) {
+              MobileMenuButton("重置本资源状态", systemImage: "arrow.counterclockwise", role: .destructive) {
                 confirm(.resetEpisode(subscriptionID: detail.subscription.id, matchID: resource.matchId))
               }
             }
@@ -2201,16 +2201,16 @@ private struct MobileSubscriptionGroupSettingsView: View {
               }
               Menu("分组操作", systemImage: "ellipsis") {
                 if !group.isDefault {
-                  Button("设为默认", systemImage: "checkmark.circle") {
+                  MobileMenuButton("设为默认", systemImage: "checkmark.circle") {
                     Task { await store.setDefaultSubscriptionGroup(id: group.id) }
                   }
                 }
-                Button("重命名", systemImage: "pencil") {
+                MobileMenuButton("重命名", systemImage: "pencil") {
                   renameDraft = group.name
                   renameTarget = group
                 }
                 if !group.isDefault {
-                  Button("删除分组", systemImage: "trash", role: .destructive) {
+                  MobileMenuButton("删除分组", systemImage: "trash", role: .destructive) {
                     let count = memberCount(group.id)
                     if count == 0 {
                       Task { await store.deleteSubscriptionGroup(id: group.id, confirmMigration: false, expectedMemberCount: 0) }

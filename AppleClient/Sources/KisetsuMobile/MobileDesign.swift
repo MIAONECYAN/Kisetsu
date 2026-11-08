@@ -1,5 +1,63 @@
 import Foundation
 import SwiftUI
+import UIKit
+
+enum MobileInterfaceAccent {
+  static let orange = Color.orange
+}
+
+enum MobileMenuIconPresentation {
+  @MainActor
+  static func image(systemName: String, colorScheme: ColorScheme, isEnabled: Bool) -> UIImage? {
+    guard let symbol = UIImage(systemName: systemName) else { return nil }
+    let traits = UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
+    let accent = UIColor(MobileInterfaceAccent.orange).resolvedColor(with: traits)
+    let color = isEnabled ? accent : accent.withAlphaComponent(0.38)
+    // Native menus ignore SwiftUI foreground styles; preserve only the symbol's color.
+    return symbol.withTintColor(color, renderingMode: .alwaysOriginal)
+  }
+}
+
+struct MobileMenuLabel: View {
+  let title: String
+  let systemImage: String
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.isEnabled) private var isEnabled
+
+  var body: some View {
+    Label {
+      Text(title)
+    } icon: {
+      if let symbol = MobileMenuIconPresentation.image(
+        systemName: systemImage, colorScheme: colorScheme, isEnabled: isEnabled
+      ) {
+        Image(uiImage: symbol)
+      } else {
+        Image(systemName: systemImage).symbolVariant(.none)
+      }
+    }
+  }
+}
+
+struct MobileMenuButton: View {
+  let title: String
+  let systemImage: String
+  let role: ButtonRole?
+  let action: () -> Void
+
+  init(_ title: String, systemImage: String, role: ButtonRole? = nil, action: @escaping () -> Void) {
+    self.title = title
+    self.systemImage = systemImage
+    self.role = role
+    self.action = action
+  }
+
+  var body: some View {
+    Button(role: role, action: action) {
+      MobileMenuLabel(title: title, systemImage: systemImage)
+    }
+  }
+}
 
 enum MobileOrganizedTimePresentation {
   static func text(_ raw: String?, now: Date = Date()) -> String? {

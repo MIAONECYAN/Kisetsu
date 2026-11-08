@@ -103,12 +103,12 @@ struct MobileMikanProjectView: View {
               Task { await store.setMikanProjectAutoRefreshEnabled(enabled) }
             }
           )) {
-            Label("自动刷新", systemImage: "arrow.clockwise")
+            MobileMenuLabel(title: "自动刷新", systemImage: "arrow.clockwise")
           }
           .disabled(store.mikanProjectSettingsSubmitting || store.mikanProjectSeason == nil)
 
           Toggle(isOn: $store.mikanProjectHideSubscribed) {
-            Label("隐藏已订阅", systemImage: "eye.slash")
+            MobileMenuLabel(title: "隐藏已订阅", systemImage: "eye.slash")
           }
 
           Divider()
@@ -117,16 +117,16 @@ struct MobileMikanProjectView: View {
               get: { MikanProjectBrowserMode(storedValue: browserMode) == .inApp },
               set: { if $0 { browserMode = MikanProjectBrowserMode.inApp.rawValue } }
             )) {
-              Label("内置 Safari 视图", systemImage: "safari")
+              MobileMenuLabel(title: "内置 Safari 视图", systemImage: "safari")
             }
             Toggle(isOn: Binding(
               get: { MikanProjectBrowserMode(storedValue: browserMode) == .external },
               set: { if $0 { browserMode = MikanProjectBrowserMode.external.rawValue } }
             )) {
-              Label("外部浏览器", systemImage: "arrow.up.right.square")
+              MobileMenuLabel(title: "外部浏览器", systemImage: "arrow.up.right.square")
             }
             Divider()
-            Button("清除网站数据", systemImage: "trash", role: .destructive) {
+            MobileMenuButton("清除网站数据", systemImage: "trash", role: .destructive) {
               showingClearWebsiteDataConfirmation = true
             }
             .disabled(websiteData.isClearing)

@@ -46,27 +46,39 @@ struct MobileRootView: View {
 
   var body: some View {
     TabView(selection: $selection) {
-      Tab(MobileTab.overview.title, systemImage: MobileTab.overview.systemImage, value: MobileTab.overview) {
+      Tab(value: MobileTab.overview) {
         NavigationStack {
           MobileOverviewView(isActive: isActive(.overview))
         }
+        .tint(.primary)
+      } label: {
+        tabLabel(.overview)
       }
-      Tab(MobileTab.search.title, systemImage: MobileTab.search.systemImage, value: MobileTab.search) {
+      Tab(value: MobileTab.search) {
         NavigationStack {
           MobileSearchView(isActive: isActive(.search))
         }
+        .tint(.primary)
+      } label: {
+        tabLabel(.search)
       }
-      Tab(MobileTab.subscriptions.title, systemImage: MobileTab.subscriptions.systemImage, value: MobileTab.subscriptions) {
+      Tab(value: MobileTab.subscriptions) {
         NavigationStack {
           MobileSubscriptionsView(isActive: isActive(.subscriptions))
         }
+        .tint(.primary)
+      } label: {
+        tabLabel(.subscriptions)
       }
-      Tab(MobileTab.tasks.title, systemImage: MobileTab.tasks.systemImage, value: MobileTab.tasks) {
+      Tab(value: MobileTab.tasks) {
         NavigationStack {
           MobileTasksView(isActive: isActive(.tasks))
         }
+        .tint(.primary)
+      } label: {
+        tabLabel(.tasks)
       }
-      Tab(MobileTab.more.title, systemImage: MobileTab.more.systemImage, value: MobileTab.more) {
+      Tab(value: MobileTab.more) {
         NavigationStack {
           Group {
 #if DEBUG
@@ -80,9 +92,12 @@ struct MobileRootView: View {
 #endif
           }
         }
+        .tint(.primary)
+      } label: {
+        tabLabel(.more)
       }
     }
-    .tint(.primary)
+    .tint(MobileInterfaceAccent.orange)
     .onChange(of: store.operationStatus, initial: true) { _, status in
       notice.status = status.phase == .idle ? nil : status
     }
@@ -128,9 +143,15 @@ struct MobileRootView: View {
           showingBackendSetup = false
         }
       }
+      .tint(.primary)
       .interactiveDismissDisabled(!backendConfigured)
     }
     .environmentObject(notice)
+  }
+
+  private func tabLabel(_ tab: MobileTab) -> some View {
+    Label(tab.title, systemImage: tab.systemImage)
+      .environment(\.symbolVariants, .none)
   }
 
   private func isActive(_ tab: MobileTab) -> Bool {
@@ -156,65 +177,53 @@ final class MobileNoticeState: ObservableObject {
 
 struct MobileStatusToolbarModifier: ViewModifier {
   @EnvironmentObject private var notice: MobileNoticeState
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var showingStatusDetail = false
 
   func body(content: Content) -> some View {
     content.toolbar {
       if notice.status != nil {
         ToolbarItem(id: "mobile-operation-status", placement: .topBarLeading) {
-          ZStack {
-            if let status = notice.status {
-              Button { showingStatusDetail = true } label: {
-                HStack(spacing: 6) {
+          if let status = notice.status {
+            Button { showingStatusDetail = true } label: {
+              HStack(spacing: 6) {
+                ZStack {
                   if status.phase == .loading {
                     ProgressView().controlSize(.mini)
                   } else {
                     Image(systemName: status.phase.iconName)
                   }
-                  Text(status.title)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                    .frame(maxWidth: 120)
                 }
-                .frame(minHeight: 44)
-                .fixedSize(horizontal: true, vertical: false)
-                .contentShape(Rectangle())
+                .frame(width: 20, height: 20)
+                Text(status.title)
+                  .font(.caption.weight(.medium))
+                  .lineLimit(1)
+                  .frame(maxWidth: 120)
               }
-              .buttonStyle(.plain)
-              .accessibilityLabel("\(status.title)，\(status.detail)")
-              .accessibilityHint("查看完整状态消息")
-              .accessibilityAction(named: "关闭通知") { dismissStatus(status) }
-              .popover(isPresented: $showingStatusDetail) {
-                VStack(alignment: .leading, spacing: 12) {
-                  Text(status.title).font(.headline)
-                  if !status.detail.isEmpty { Text(status.detail) }
-                  Button("关闭通知", systemImage: "xmark") { dismissStatus(status) }
-                    .buttonStyle(.glass)
-                }
-                .padding()
-                .presentationCompactAdaptation(.popover)
+              .frame(minHeight: 44)
+              .fixedSize(horizontal: true, vertical: false)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(status.title)，\(status.detail)")
+            .accessibilityHint("查看完整状态消息")
+            .accessibilityAction(named: "关闭通知") { dismissStatus(status) }
+            .popover(isPresented: $showingStatusDetail) {
+              VStack(alignment: .leading, spacing: 12) {
+                Text(status.title).font(.headline)
+                if !status.detail.isEmpty { Text(status.detail) }
+                Button("关闭通知", systemImage: "xmark") { dismissStatus(status) }
+                  .buttonStyle(.glass)
               }
-              .transition(statusTransition)
+              .padding()
+              .presentationCompactAdaptation(.popover)
             }
           }
-          .frame(height: 44)
-          .animation(
-            reduceMotion ? MobileMotion.reducedFade : MobileMotion.status,
-            value: notice.status != nil
-          )
         }
       }
     }
     .onChange(of: notice.status == nil) { _, isDismissed in
       if isDismissed { showingStatusDetail = false }
     }
-  }
-
-  private var statusTransition: AnyTransition {
-    guard !reduceMotion else { return .opacity }
-    let hidden = AnyTransition.opacity.combined(with: .offset(y: -8))
-    return .asymmetric(insertion: hidden, removal: hidden)
   }
 
   private func dismissStatus(_ status: OperationStatus) {

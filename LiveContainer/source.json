@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.16",
-          "buildVersion": "17",
-          "date": "2026-11-01T14:21:57Z",
-          "localizedDescription": "订阅剧集状态支持显示或隐藏已跳过剧集，默认隐藏；iPhone 订阅详情新增 Season 分组与季度集数。",
+          "version": "1.0.17",
+          "buildVersion": "18",
+          "date": "2026-11-08T03:39:20Z",
+          "localizedDescription": "修复订阅详情加载完成提示的偏移动效；底部导航使用线形图标和橙色选中状态；统一展开菜单、更多和设置入口图标，保持独立按钮原色。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5975323,
+          "size": 5984815,
           "minOSVersion": "26.0"
         }
       ],

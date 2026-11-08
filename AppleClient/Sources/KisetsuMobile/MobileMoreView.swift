@@ -58,7 +58,8 @@ struct MobileMoreView: View {
           }
         } icon: {
           Image(systemName: destination.systemImage)
-            .foregroundStyle(.secondary)
+            .symbolVariant(.none)
+            .foregroundStyle(MobileInterfaceAccent.orange)
         }
       }
     }
@@ -162,7 +163,8 @@ struct MobileSettingsView: View {
           }
         } icon: {
           Image(systemName: destination.systemImage)
-            .foregroundStyle(.secondary)
+            .symbolVariant(.none)
+            .foregroundStyle(MobileInterfaceAccent.orange)
         }
       }
     }

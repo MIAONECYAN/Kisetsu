@@ -39,7 +39,7 @@ struct MobileFileManagerView: View {
             Button {
               Task { await selectRoot(root.id) }
             } label: {
-              Label(root.name, systemImage: FileBrowserPresentation.rootIcon(kind: root.kind))
+              MobileMenuLabel(title: root.name, systemImage: FileBrowserPresentation.rootIcon(kind: root.kind))
             }
           }
         } label: {
@@ -98,10 +98,10 @@ struct MobileFileManagerView: View {
             .disabled(isReadingDirectory)
             .contextMenu {
               if !model.isReadOnly {
-                Button("复制", systemImage: "doc.on.doc") { select(item); model.copySelection() }
-                Button("剪切", systemImage: "scissors") { select(item); model.cutSelection() }
-                Button("重命名", systemImage: "pencil") { beginRename(item) }
-                Button("永久删除", systemImage: "trash", role: .destructive) { prepareDelete(item) }
+                MobileMenuButton("复制", systemImage: "doc.on.doc") { select(item); model.copySelection() }
+                MobileMenuButton("剪切", systemImage: "scissors") { select(item); model.cutSelection() }
+                MobileMenuButton("重命名", systemImage: "pencil") { beginRename(item) }
+                MobileMenuButton("永久删除", systemImage: "trash", role: .destructive) { prepareDelete(item) }
               }
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -175,13 +175,13 @@ struct MobileFileManagerView: View {
       ToolbarItemGroup(placement: .topBarTrailing) {
         if !model.isReadOnly {
           Menu("文件操作", systemImage: "ellipsis.circle") {
-            Button("新建文件夹", systemImage: "folder.badge.plus") {
+            MobileMenuButton("新建文件夹", systemImage: "folder.badge.plus") {
               folderName = ""
               showingCreateFolder = true
             }
-            Button("粘贴", systemImage: "doc.on.clipboard") { Task { await model.paste(client: store.client) } }
+            MobileMenuButton("粘贴", systemImage: "doc.on.clipboard") { Task { await model.paste(client: store.client) } }
               .disabled(!model.canPaste)
-            Button("恢复只读", systemImage: "lock") { Task { await model.lock(client: store.client) } }
+            MobileMenuButton("恢复只读", systemImage: "lock") { Task { await model.lock(client: store.client) } }
           }
         } else {
           Button("进入编辑模式", systemImage: "lock.open") { showingUnlockConfirmation = true }

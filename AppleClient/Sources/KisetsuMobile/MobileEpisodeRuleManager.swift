@@ -142,14 +142,14 @@ struct MobileEpisodeRuleManager: View {
       }
 
       Menu("添加识别规则", systemImage: "plus") {
-        Button("新建可视化规则", systemImage: "viewfinder") {
+        MobileMenuButton("新建可视化规则", systemImage: "viewfinder") {
           presentEditor(MobileEpisodeRuleEditorRoute(
             kind: .visual,
             rule: newVisualRule(),
             isNew: true
           ))
         }
-        Button("新建高级规则", systemImage: "curlybraces") {
+        MobileMenuButton("新建高级规则", systemImage: "curlybraces") {
           presentEditor(MobileEpisodeRuleEditorRoute(
             kind: .advanced,
             rule: newAdvancedRule(),
@@ -216,19 +216,19 @@ struct MobileEpisodeRuleManager: View {
         }
         Spacer(minLength: 4)
         Menu("规则操作", systemImage: "ellipsis.circle") {
-          Button("编辑", systemImage: "pencil") {
+          MobileMenuButton("编辑", systemImage: "pencil") {
             presentEditor(MobileEpisodeRuleEditorRoute(
               kind: rule.mode == "visual" ? .visual : .advanced,
               rule: rule,
               isNew: false
             ))
           }
-          Button("上移", systemImage: "arrow.up") { moveRule(at: index, by: -1) }
+          MobileMenuButton("上移", systemImage: "arrow.up") { moveRule(at: index, by: -1) }
             .disabled(index == 0)
-          Button("下移", systemImage: "arrow.down") { moveRule(at: index, by: 1) }
+          MobileMenuButton("下移", systemImage: "arrow.down") { moveRule(at: index, by: 1) }
             .disabled(index == rules.count - 1)
           Divider()
-          Button("删除", systemImage: "trash", role: .destructive) { deletingRule = rule }
+          MobileMenuButton("删除", systemImage: "trash", role: .destructive) { deletingRule = rule }
         }
         .labelStyle(.iconOnly)
         .frame(width: 44, height: 44)
