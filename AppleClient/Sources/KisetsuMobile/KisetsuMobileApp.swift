@@ -212,6 +212,7 @@ struct KisetsuMobileApp: App {
   var body: some Scene {
     WindowGroup {
       MobileRootView()
+        .background { MobileKeyboardDismissal() }
         .environmentObject(store)
         #if DEBUG
         .preferredColorScheme(MobileDebugConfiguration.fixtureColorScheme(environment: ProcessInfo.processInfo.environment))

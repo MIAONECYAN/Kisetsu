@@ -20,12 +20,12 @@
       ],
       "versions": [
         {
-          "version": "1.0.17",
-          "buildVersion": "18",
-          "date": "2026-11-08T03:39:20Z",
-          "localizedDescription": "修复订阅详情加载完成提示的偏移动效；底部导航使用线形图标和橙色选中状态；统一展开菜单、更多和设置入口图标，保持独立按钮原色。",
+          "version": "1.0.18",
+          "buildVersion": "19",
+          "date": "2026-11-18T06:28:24Z",
+          "localizedDescription": "轻点输入框外即可收起键盘，保留已输入内容，不影响按钮点击、输入框切换和中文选字。",
           "downloadURL": "https://raw.githubusercontent.com/MIAONECYAN/Kisetsu/main/LiveContainer/Kisetsu.ipa",
-          "size": 5984815,
+          "size": 5997622,
           "minOSVersion": "26.0"
         }
       ],
